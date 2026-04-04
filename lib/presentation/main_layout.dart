@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import '../helpers/app_colors.dart';
 import 'home.screen.dart';
+import 'profile/profile.screen.dart';
 import 'search/search_results.screen.dart';
+import 'shared/widgets/app_drawer.widget.dart';
 import 'tickets/my_tickets_list.screen.dart';
 
 class MainLayout extends StatefulWidget {
@@ -14,19 +16,13 @@ class MainLayout extends StatefulWidget {
 
 class _MainLayoutState extends State<MainLayout> {
   late int _selectedIndex;
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   @override
   void initState() {
     super.initState();
     _selectedIndex = widget.initialIndex;
   }
-
-  final List<Widget> _screens = [
-    const HomeScreen(),
-    const SearchResultsScreen(),
-    const MyTicketsListScreen(),
-    const Center(child: Text('Profile Screen Placeholder')),
-  ];
 
   void _onItemTapped(int index) {
     setState(() {
@@ -36,7 +32,16 @@ class _MainLayoutState extends State<MainLayout> {
 
   @override
   Widget build(BuildContext context) {
+    final List<Widget> _screens = [
+      HomeScreen(onMenuTap: () => _scaffoldKey.currentState?.openDrawer()),
+      SearchResultsScreen(onMenuTap: () => _scaffoldKey.currentState?.openDrawer()),
+      MyTicketsListScreen(onMenuTap: () => _scaffoldKey.currentState?.openDrawer()),
+      ProfileScreen(onMenuTap: () => _scaffoldKey.currentState?.openDrawer()),
+    ];
+
     return Scaffold(
+      key: _scaffoldKey,
+      drawer: AppDrawer(onTabSelected: _onItemTapped),
       body: IndexedStack(
         index: _selectedIndex,
         children: _screens,

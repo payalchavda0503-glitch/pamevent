@@ -1,15 +1,22 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import '../../api/api.client.dart';
 import '../../helpers/app_colors.dart';
+import '../../helpers/public_url.dart';
 import '../shared/widgets/custom_button.widget.dart';
 
 class EventDetailsScreen extends StatefulWidget {
+  final int eventId;
   final String title;
   final String imageUrl;
+  final String price;
 
   const EventDetailsScreen({
     super.key,
-    required this.title,
-    required this.imageUrl,
+    this.eventId = 0,
+    this.title = '',
+    this.imageUrl = '',
+    this.price = '',
   });
 
   @override
@@ -18,9 +25,60 @@ class EventDetailsScreen extends StatefulWidget {
 
 class _EventDetailsScreenState extends State<EventDetailsScreen> {
   int _selectedTabIndex = 0;
+  bool _isLoading = true;
+  Map<String, dynamic>? _eventDetail;
+  List<dynamic> _performers = [];
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.eventId != 0) {
+      _fetchEventDetail();
+    } else {
+      _isLoading = false;
+    }
+  }
+
+  Future<void> _fetchEventDetail() async {
+    setState(() => _isLoading = true);
+    try {
+      final data = await ApiClient.getCustomerEventDetail(widget.eventId);
+      print('event detail API Full Response: $data');
+      
+      if (mounted) {
+        setState(() {
+          _eventDetail = data;
+          // Extract performers directly from event detail response
+          _performers = data?['performers'] is List ? data!['performers'] : [];
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching event details: $e');
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    final data = _eventDetail ?? {};
+    final title = data['title'] ?? widget.title;
+    final imageUrl = data['event_img'] ?? data['event_thumbnail'] ?? widget.imageUrl;
+    final venue = data['venue'] ?? '';
+    final address = '${data['city'] ?? ''}, ${data['country'] ?? ''}'.trim();
+    final startDate = data['start_date'] ?? '';
+    final startTime = data['start_time'] ?? '';
+    final description = data['description'] ?? '';
+    final refundPolicy = data['refund_policy'] ?? '';
+
     return Scaffold(
       backgroundColor: AppColors.white,
       body: SafeArea(
@@ -71,11 +129,21 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                         children: [
                           ClipRRect(
                             borderRadius: BorderRadius.circular(16),
-                            child: Image.network(
-                              widget.imageUrl,
+                            child: CachedNetworkImage(
+                              imageUrl: resolvePublicUrl(imageUrl) ?? imageUrl,
                               width: double.infinity,
                               height: 200,
                               fit: BoxFit.cover,
+                              placeholder: (context, url) => Container(
+                                height: 200,
+                                color: AppColors.lightGrey,
+                                child: const Center(child: CircularProgressIndicator()),
+                              ),
+                              errorWidget: (context, url, error) => Container(
+                                height: 200,
+                                color: AppColors.lightGrey,
+                                child: const Icon(Icons.image_not_supported),
+                              ),
                             ),
                           ),
                           Positioned(
@@ -98,39 +166,42 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Date Box
-                          Container(
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(8),
-                              color: AppColors.scaffold,
-                            ),
-                            child: Column(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                                  decoration: const BoxDecoration(
-                                    color: AppColors.primary,
-                                    borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
-                                  ),
-                                  child: const Text(
-                                    'Feb',
-                                    style: TextStyle(color: AppColors.white, fontWeight: FontWeight.bold),
-                                  ),
-                                ),
-                                const Padding(
-                                  padding: EdgeInsets.symmetric(vertical: 8),
-                                  child: Text(
-                                    '13',
-                                    style: TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
-                                      color: AppColors.black,
+                          // Date Box (Dynamic based on start_date)
+                          if (startDate.isNotEmpty)
+                            Container(
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(8),
+                                color: AppColors.scaffold,
+                              ),
+                              child: Column(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                    decoration: const BoxDecoration(
+                                      color: AppColors.primary,
+                                      borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
+                                    ),
+                                    child: Text(
+                                      startDate.split('-').length > 1 
+                                          ? _getMonthAbbreviation(int.parse(startDate.split('-')[1]))
+                                          : 'Date',
+                                      style: const TextStyle(color: AppColors.white, fontWeight: FontWeight.bold),
                                     ),
                                   ),
-                                ),
-                              ],
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 8),
+                                    child: Text(
+                                      startDate.split('-').last,
+                                      style: const TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                        color: AppColors.black,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
                           const SizedBox(width: 12),
                           // Title and Info
                           Expanded(
@@ -141,7 +212,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                                   children: [
                                     Expanded(
                                       child: Text(
-                                        widget.title,
+                                        title,
                                         style: const TextStyle(
                                           fontSize: 22,
                                           fontWeight: FontWeight.bold,
@@ -166,24 +237,24 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                                   children: [
                                     const Icon(Icons.calendar_today, size: 14, color: AppColors.primary),
                                     const SizedBox(width: 4),
-                                    const Text('Fri, 13th Feb 2026', style: TextStyle(fontSize: 12, color: AppColors.darkGrey)),
+                                    Text(startDate, style: const TextStyle(fontSize: 12, color: AppColors.darkGrey)),
                                     const Padding(
                                       padding: EdgeInsets.symmetric(horizontal: 4),
                                       child: Text('|', style: TextStyle(color: AppColors.grey)),
                                     ),
                                     const Icon(Icons.access_time, size: 14, color: AppColors.primary),
                                     const SizedBox(width: 4),
-                                    const Text('02:00 PM', style: TextStyle(fontSize: 12, color: AppColors.darkGrey)),
+                                    Text(startTime, style: const TextStyle(fontSize: 12, color: AppColors.darkGrey)),
                                     const Padding(
                                       padding: EdgeInsets.symmetric(horizontal: 4),
                                       child: Text('|', style: TextStyle(color: AppColors.grey)),
                                     ),
                                     const Icon(Icons.location_on, size: 14, color: AppColors.primary),
                                     const SizedBox(width: 4),
-                                    const Expanded(
+                                    Expanded(
                                       child: Text(
-                                        'La Reserve',
-                                        style: TextStyle(fontSize: 12, color: AppColors.primary, fontWeight: FontWeight.w500),
+                                        venue,
+                                        style: const TextStyle(fontSize: 12, color: AppColors.primary, fontWeight: FontWeight.w500),
                                         overflow: TextOverflow.ellipsis,
                                       ),
                                     ),
@@ -209,28 +280,40 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                       const SizedBox(height: 16),
 
                       // Description
-                      const Text(
-                        'FLEVA Carnival 2026 🔥🎭\nL\'expérience ultime où la couleur rencontre la chaleur !\nPréparez-vous à plonger dans l\'événement carnavalesque le plus vibrant de l\'année. FLEVA n\'est pas qu\'un simple carnaval, c\'est une célébration annuelle de l\'énergie, de la culture et de la fête pure. Le Vendredi 13 Février 2026, nous transformons La Réserve en un épicentre de vibrations intenses.',
-                        style: TextStyle(fontSize: 13, color: AppColors.darkGrey, height: 1.4),
-                      ),
+                      if (description.isNotEmpty)
+                        Text(
+                          description.replaceAll(RegExp(r'<[^>]*>|&nbsp;'), ''),
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: AppColors.darkGrey,
+                            height: 1.4,
+                          ),
+                        ),
                       const SizedBox(height: 24),
 
                       // Performers
-                      const Text(
-                        'Performers',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          _buildPerformer('Roody Roodboy', 'https://picsum.photos/100/100?random=10'),
-                          const SizedBox(width: 12),
-                          _buildPerformer('Tijozenny', 'https://picsum.photos/100/100?random=11'),
-                          const SizedBox(width: 12),
-                          _buildPerformer('Pierre Jean', 'https://picsum.photos/100/100?random=12'),
-                        ],
-                      ),
-                      const SizedBox(height: 24),
+                      if (_performers.isNotEmpty) ...[
+                        const Text(
+                          'Performers',
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 12),
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: _performers.map((artist) {
+                              return Padding(
+                                padding: const EdgeInsets.only(right: 12),
+                                child: _buildPerformer(
+                                  artist['name'] ?? artist['username'] ?? 'Artist',
+                                  resolvePublicUrl(artist['photo'] ?? artist['image'] ?? artist['avatar']) ?? 'https://picsum.photos/100/100',
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                      ],
 
                       // Location
                       const Text(
@@ -247,14 +330,14 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text(
-                                  'La Reserve',
-                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.primary),
+                                Text(
+                                  venue,
+                                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.primary),
                                 ),
                                 const SizedBox(height: 4),
-                                const Text(
-                                  'Impasse 23, Rue Avieu thomassin 25, Haiti',
-                                  style: TextStyle(fontSize: 13, color: AppColors.darkGrey),
+                                Text(
+                                  address,
+                                  style: const TextStyle(fontSize: 13, color: AppColors.darkGrey),
                                 ),
                                 const SizedBox(height: 8),
                                 Row(
@@ -279,9 +362,9 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                         style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 8),
-                      const Text(
-                        'All tickets are refundable up to 1 days before the event.\nThe Pamevent fee is non refundable.',
-                        style: TextStyle(fontSize: 13, color: AppColors.darkGrey),
+                      Text(
+                        refundPolicy.isNotEmpty ? refundPolicy : 'No refund policy specified.',
+                        style: const TextStyle(fontSize: 13, color: AppColors.darkGrey),
                       ),
                       const SizedBox(height: 32),
                     ],
@@ -298,25 +381,28 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                 border: Border(top: BorderSide(color: AppColors.lightGrey.withValues(alpha: 0.5))),
               ),
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text.rich(
-                    TextSpan(
-                      text: 'Tickets start at ',
-                      style: TextStyle(color: AppColors.darkGrey, fontSize: 14),
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        TextSpan(
-                          text: '\$20',
-                          style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.black, fontSize: 16),
+                        const Text('Price', style: TextStyle(fontSize: 12, color: AppColors.darkGrey)),
+                        Text(
+                          formatPrice(data['payment_info']?['calculate_price'] ?? widget.price),
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                         ),
                       ],
                     ),
                   ),
-                  SizedBox(
-                    width: 140,
+                  const SizedBox(width: 16),
+                  Expanded(
+                    flex: 2,
                     child: CustomButton(
-                      title: 'Get tickets',
-                      onTap: () {},
+                      title: 'Get Tickets',
+                      onTap: () {
+                        // Handle ticket purchase
+                      },
                     ),
                   ),
                 ],
@@ -328,28 +414,34 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
     );
   }
 
+  String _getMonthAbbreviation(int month) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    if (month >= 1 && month <= 12) return months[month - 1];
+    return 'Month';
+  }
+
   Widget _buildTab(String title, int index) {
-    final isSelected = _selectedTabIndex == index;
+    bool isSelected = _selectedTabIndex == index;
     return GestureDetector(
-      onTap: () {
-        setState(() {
-          _selectedTabIndex = index;
-        });
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: isSelected ? AppColors.primary : AppColors.scaffold,
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: Text(
-          title,
-          style: TextStyle(
-            color: isSelected ? AppColors.white : AppColors.darkGrey,
-            fontSize: 12,
-            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+      onTap: () => setState(() => _selectedTabIndex = index),
+      child: Column(
+        children: [
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+              color: isSelected ? AppColors.primary : AppColors.darkGrey,
+            ),
           ),
-        ),
+          if (isSelected)
+            Container(
+              margin: const EdgeInsets.only(top: 4),
+              height: 2,
+              width: 20,
+              color: AppColors.primary,
+            ),
+        ],
       ),
     );
   }
@@ -357,29 +449,29 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
   Widget _buildPerformer(String name, String imageUrl) {
     return Column(
       children: [
-        Container(
-          width: 80,
-          height: 80,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppColors.lightGrey),
-            image: DecorationImage(
-              image: NetworkImage(imageUrl),
-              fit: BoxFit.cover,
-            ),
+        CachedNetworkImage(
+          imageUrl: imageUrl,
+          imageBuilder: (context, imageProvider) => CircleAvatar(
+            radius: 30,
+            backgroundImage: imageProvider,
+          ),
+          placeholder: (context, url) => const CircleAvatar(
+            radius: 30,
+            backgroundColor: AppColors.lightGrey,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          errorWidget: (context, url, error) => const CircleAvatar(
+            radius: 30,
+            backgroundColor: AppColors.lightGrey,
+            child: Icon(Icons.person, color: AppColors.grey),
           ),
         ),
         const SizedBox(height: 8),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            border: Border.all(color: AppColors.lightGrey),
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: Text(
-            name,
-            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w500),
-          ),
+        Text(
+          name,
+          style: const TextStyle(fontSize: 12),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
         ),
       ],
     );

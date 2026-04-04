@@ -2,9 +2,16 @@ class ApiConfig {
   /// Server
   static const host = 'https://pamevent.com';
   static const _serverBaseUrl = '$host/api/scanner';
+  static const _customerBaseUrl = '$host/api/customer';
 
   /// Config
   static Uri get init => Uri.parse('$_serverBaseUrl/splash_screen');
+  static Uri get home => Uri.parse('$_customerBaseUrl/home');
+  static Uri get categories => Uri.parse('$_customerBaseUrl/categories');
+  static Uri get profile => Uri.parse('$_customerBaseUrl/profile');
+  static Uri get customerEvents => Uri.parse('$_customerBaseUrl/events');
+  static Uri get customerEventDetail => Uri.parse('$_customerBaseUrl/event_detail');
+  static Uri get artists => Uri.parse('$_customerBaseUrl/artists');
 
   /// Auth
   static Uri get login => Uri.parse('$_serverBaseUrl/login');

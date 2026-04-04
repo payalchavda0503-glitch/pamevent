@@ -77,6 +77,7 @@ class AppState {
   //endregion
 
   //region User Data
+  static final authRevision = ValueNotifier(0);
   static Profile? profile;
   static String? get token => profile?.token;
   static bool get loggedIn => isValidToken && profile != null;
@@ -87,6 +88,7 @@ class AppState {
     if (profileJson != null) {
       profile = Profile.fromJson(jsonDecode(profileJson));
       ApiClient.setAuthHeader(profile!.token);
+      authRevision.value++;
     }
   }
 
@@ -106,6 +108,7 @@ class AppState {
         );
       }
     }
+    authRevision.value++;
     if (loader) hideLoader();
   }
 
@@ -117,6 +120,7 @@ class AppState {
     profile = null;
     ApiClient.removeAuthHeader();
     await clearPrefs();
+    authRevision.value++;
     hideLoader();
     if (restart) resetNavKey();
   }

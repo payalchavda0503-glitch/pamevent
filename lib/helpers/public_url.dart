@@ -10,3 +10,20 @@ String? resolvePublicUrl(String? raw) {
   if (t.startsWith('/')) return '$h$t';
   return '$h/$t';
 }
+
+/// Formats a raw price value into a user-friendly string (e.g., "$20.00").
+String formatPrice(dynamic price) {
+  if (price == null || price.toString().isEmpty) return 'Free';
+  final pStr = price.toString().toLowerCase().trim();
+  if (pStr == 'free' || pStr == '0' || pStr == '0.00' || pStr == '0.0') return 'Free';
+  
+  // If already formatted with $, return as is
+  if (pStr.contains('\$')) return price.toString();
+  
+  // Extract numeric value
+  final numericPart = pStr.replaceAll(RegExp(r'[^0-9.]'), '');
+  final val = double.tryParse(numericPart);
+  if (val == null) return price.toString();
+  
+  return '\$${val.toStringAsFixed(2)}';
+}

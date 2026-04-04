@@ -1,11 +1,19 @@
+import 'dart:developer' as dev show log;
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import '../api/api.client.dart';
 import '../helpers/app_colors.dart';
-import 'shared/widgets/custom_text_field.widget.dart';
+import '../helpers/public_url.dart';
+import '../services/toast.service.dart';
 import 'event/event_details.screen.dart';
+import 'event/all_events.screen.dart';
 import 'search/search_results.screen.dart';
+import 'shared/widgets/custom_text_field.widget.dart';
+import 'shared/widgets/filter_bottom_sheet.widget.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final VoidCallback? onMenuTap;
+  const HomeScreen({super.key, this.onMenuTap});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -13,6 +21,45 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _searchController = TextEditingController();
+  bool _isLoading = true;
+  List<dynamic> _events = [];
+  List<dynamic> _categories = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchHomeData();
+  }
+
+  Future<void> _fetchHomeData() async {
+    print('--- FETCHING HOME DATA START ---');
+    setState(() => _isLoading = true);
+    try {
+      // Fetch only home data as it contains both categories and events
+      final homeData = await ApiClient.home();
+      print('Home API Full Response: $homeData');
+
+      setState(() {
+        // Extracting categories from home API
+        _categories = homeData?['categories'] ?? [];
+        
+        // Extracting events from home API (checking multiple possible keys)
+        final eventsList = homeData?['upcoming_events'] ?? homeData?['events'] ?? [];
+        _events = eventsList is List ? eventsList : [];
+        
+        if (_events.isNotEmpty) {
+          print('First event data sample: ${_events.first}');
+        }
+        
+        print('Home Data - Categories: ${_categories.length}, Events: ${_events.length}');
+        _isLoading = false;
+      });
+    } catch (e, stack) {
+      print('Error fetching home data: $e');
+      print('Stack trace: $stack');
+      setState(() => _isLoading = false);
+    }
+  }
 
   @override
   void dispose() {
@@ -25,151 +72,228 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       backgroundColor: AppColors.white,
       body: SafeArea(
-        child: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Search Bar
-                GestureDetector(
-                  onTap: () {
-                    // We don't need to push a new screen, we just need to change the tab
-                    // This will be handled by the MainLayout
-                    // For now, we can just let the user tap the bottom nav bar
-                  },
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: AppColors.scaffold,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
-                    child: Row(
-                      children: const [
-                        Icon(Icons.search, color: AppColors.grey),
-                        SizedBox(width: 12),
-                        Text(
-                          'Find events, artist & venues',
-                          style: TextStyle(color: AppColors.grey, fontSize: 14),
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : RefreshIndicator(
+                onRefresh: _fetchHomeData,
+                child: SingleChildScrollView(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Search Bar with Drawer and Filter
+                        Row(
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.menu, color: AppColors.black),
+                              onPressed: widget.onMenuTap,
+                            ),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: GestureDetector(
+                                onTap: () {
+                                  // Handle search tap
+                                },
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: AppColors.scaffold,
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+                                  child: Row(
+                                    children: const [
+                                      Icon(Icons.search, color: AppColors.grey, size: 20),
+                                      SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          'Find events, artist & venues',
+                                          style: TextStyle(color: AppColors.grey, fontSize: 14),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            IconButton(
+                              icon: const Icon(Icons.filter_list, color: AppColors.black),
+                              onPressed: () {
+                                showModalBottomSheet(
+                                  context: context,
+                                  isScrollControlled: true,
+                                  backgroundColor: Colors.transparent,
+                                  builder: (context) => const FilterBottomSheet(),
+                                );
+                              },
+                            ),
+                          ],
                         ),
+                        const SizedBox(height: 24),
+
+                        // Events Section Header
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: const [
+                            Text(
+                              'Events',
+                              style: TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.black,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+
+                        // Event List
+                        if (_events.isEmpty)
+                          Center(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 48),
+                              child: Column(
+                                children: [
+                                  const Text(
+                                    'No events found for this month.',
+                                    style: TextStyle(color: AppColors.grey),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  ElevatedButton(
+                                    onPressed: _fetchHomeData,
+                                    child: const Text('Retry Fetch Data'),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          )
+                        else
+                          ..._events.map((event) => Padding(
+                                padding: const EdgeInsets.only(bottom: 16),
+                                child: _buildEventItem(
+                                  eventId: event['id'] ?? event['event_id'] ?? 0,
+                                  imageUrl: event['event_thumbnail_url'] ?? 
+                                           resolvePublicUrl(event['event_thumbnail'] ?? event['image'] ?? event['event_img']) ?? 
+                                           'https://picsum.photos/200/200',
+                                  title: event['title'] ?? 'Untitled Event',
+                                  location: event['event_address'] ?? 
+                                           '${event['city'] ?? ''}, ${event['country'] ?? ''}'.trim().replaceAll(RegExp(r'^, |, $'), '') ?? 
+                                           event['venue'] ?? 
+                                           'Online',
+                                  organizer: event['organizer'] is Map 
+                                      ? (event['organizer']['username'] ?? 'Unknown')
+                                      : (event['organizer_name'] ?? 'Unknown'),
+                                  date: event['event_date'] != null 
+                                      ? '${event['event_date']} / ${event['event_start_time'] ?? ''}'
+                                      : (event['start_date'] != null 
+                                          ? '${event['start_date']} / ${event['start_time'] ?? ''}'
+                                          : ''),
+                                  price: formatPrice(event['payment_info'] is Map 
+                                      ? (event['payment_info']['calculate_price'] ?? event['payment_info']['original_price'])
+                                      : (event['price'] ?? event['event_price'] ?? event['ticket_price'] ?? event['min_price'] ?? event['starting_price'])),
+                                  status: event['status_label'],
+                                  statusColor: event['status_color'] != null
+                                      ? Color(int.parse(event['status_color'].replaceAll('#', '0xFF')))
+                                      : null,
+                                ),
+                              )),
+
+                        const SizedBox(height: 24),
+                        Center(
+                          child: TextButton(
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (context) => const AllEventsScreen()),
+                              );
+                            },
+                            child: const Text(
+                              'See all',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.black,
+                              ),
+                            ),
+                          ),
+                        ),
+
+                      
+                        const SizedBox(height: 24),
+                        // Categories Section
+                        const Text(
+                          'Categories',
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.black,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        if (_categories.isEmpty)
+                          const Text('No categories available.')
+                        else
+                          SizedBox(
+                            height: 140,
+                            child: ListView.builder(
+                              scrollDirection: Axis.horizontal,
+                              itemCount: _categories.length,
+                              itemBuilder: (context, index) {
+                                final category = _categories[index];
+                                return Padding(
+                                  padding: const EdgeInsets.only(right: 12),
+                                  child: _buildCategoryItem(
+                                    category['name'] ?? 'Category',
+                                    resolvePublicUrl(category['image_url'] ?? category['image']) ?? 'https://picsum.photos/200/300',
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        const SizedBox(height: 24),
                       ],
                     ),
                   ),
                 ),
-                const SizedBox(height: 24),
-
-                // This Month Section Header
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'This Month',
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.black,
-                      ),
-                    ),
-                    TextButton.icon(
-                      onPressed: () {},
-                      icon: const Icon(Icons.filter_list, color: AppColors.black, size: 18),
-                      label: const Text(
-                        'Filters',
-                        style: TextStyle(color: AppColors.black, fontSize: 14),
-                      ),
-                      style: TextButton.styleFrom(
-                        padding: EdgeInsets.zero,
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-
-                // Event List
-                _buildEventItem(
-                  imageUrl: 'https://picsum.photos/200/200?random=1',
-                  title: 'Come to celebrate',
-                  location: 'Boukanye',
-                  organizer: 'Guirrandmarketing group',
-                  date: 'Frid 06 Feb / 8h PM',
-                  price: '\$20 USD',
-                  status: 'Few tickets left',
-                  statusColor: Colors.pinkAccent,
-                ),
-                const SizedBox(height: 16),
-                _buildEventItem(
-                  imageUrl: 'https://picsum.photos/200/200?random=2',
-                  title: 'Vayb & Princeess Lover',
-                  location: 'Lakay bar restaurant',
-                  organizer: 'Jeanpierre',
-                  date: 'Frid 06 Feb / 8h PM',
-                  price: '\$30 USD',
-                  status: 'Sold out',
-                  statusColor: AppColors.red,
-                ),
-                const SizedBox(height: 16),
-                _buildEventItem(
-                  imageUrl: 'https://picsum.photos/200/200?random=3',
-                  title: 'The Last Party 2.0',
-                  location: 'Parc St therese',
-                  organizer: 'atgasam',
-                  date: 'Frid 06 Feb / 8h PM',
-                  price: '\$15 USD',
-                ),
-
-                const SizedBox(height: 24),
-                Center(
-                  child: TextButton(
-                    onPressed: () {},
-                    child: const Text(
-                      'See all',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.black,
-                      ),
-                    ),
-                  ),
-                ),
-
-                const SizedBox(height: 24),
-                // Categories Section
-                const Text(
-                  'Categories',
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.black,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                SizedBox(
-                  height: 140,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    children: [
-                      _buildCategoryItem('Night Life', 'https://picsum.photos/200/300?random=4'),
-                      const SizedBox(width: 12),
-                      _buildCategoryItem('Social', 'https://picsum.photos/200/300?random=5'),
-                      const SizedBox(width: 12),
-                      _buildCategoryItem('Food', 'https://picsum.photos/200/300?random=6'),
-                      const SizedBox(width: 12),
-                      _buildCategoryItem('Concert', 'https://picsum.photos/200/300?random=7'),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 24),
-              ],
-            ),
-          ),
-        ),
+              ),
       ),
     );
   }
 
+  Widget _buildArtistItem(String name, String imageUrl) {
+    return Column(
+      children: [
+        CircleAvatar(
+          radius: 40,
+          backgroundImage: NetworkImage(imageUrl),
+          backgroundColor: AppColors.lightGrey,
+        ),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          decoration: BoxDecoration(
+            border: Border.all(color: AppColors.lightGrey),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            name,
+            style: const TextStyle(
+              fontSize: 12,
+              color: AppColors.black,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildEventItem({
+    required int eventId,
     required String imageUrl,
     required String title,
     required String location,
@@ -185,8 +309,10 @@ class _HomeScreenState extends State<HomeScreen> {
           context,
           MaterialPageRoute(
             builder: (context) => EventDetailsScreen(
+              eventId: eventId,
               title: title,
               imageUrl: imageUrl,
+              price: price,
             ),
           ),
         );
@@ -196,11 +322,23 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
         ClipRRect(
           borderRadius: BorderRadius.circular(12),
-          child: Image.network(
-            imageUrl,
-            width: 100,
-            height: 100,
+          child: CachedNetworkImage(
+            imageUrl: imageUrl,
+            width: 120,
+            height: 120,
             fit: BoxFit.cover,
+            placeholder: (context, url) => Container(
+              width: 120,
+              height: 120,
+              color: AppColors.lightGrey,
+              child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+            ),
+            errorWidget: (context, url, error) => Container(
+              width: 120,
+              height: 120,
+              color: AppColors.lightGrey,
+              child: const Icon(Icons.image_not_supported, color: AppColors.grey),
+            ),
           ),
         ),
         const SizedBox(width: 12),
@@ -223,7 +361,6 @@ class _HomeScreenState extends State<HomeScreen> {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  const Icon(Icons.bookmark_border, size: 20, color: AppColors.grey),
                 ],
               ),
               const SizedBox(height: 4),
@@ -293,33 +430,58 @@ class _HomeScreenState extends State<HomeScreen> {
       width: 100,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(8),
-        image: DecorationImage(
-          image: NetworkImage(imageUrl),
-          fit: BoxFit.cover,
-        ),
+        color: AppColors.lightGrey,
       ),
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(8),
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Colors.transparent,
-              Colors.black.withValues(alpha: 0.7),
-            ],
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          CachedNetworkImage(
+            imageUrl: imageUrl,
+            fit: BoxFit.cover,
+            placeholder: (context, url) => Container(
+              color: AppColors.lightGrey,
+              child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+            ),
+            errorWidget: (context, url, error) => Container(
+              color: AppColors.lightGrey,
+              child: const Center(
+                child: Icon(
+                  Icons.image_outlined,
+                  color: AppColors.grey,
+                  size: 30,
+                ),
+              ),
+            ),
           ),
-        ),
-        padding: const EdgeInsets.all(8),
-        alignment: Alignment.bottomLeft,
-        child: Text(
-          title,
-          style: const TextStyle(
-            color: AppColors.white,
-            fontWeight: FontWeight.bold,
-            fontSize: 14,
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.transparent,
+                  Colors.black.withValues(alpha: 0.7),
+                ],
+              ),
+            ),
           ),
-        ),
+          Positioned(
+            bottom: 8,
+            left: 8,
+            right: 8,
+            child: Text(
+              title,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
       ),
     );
   }

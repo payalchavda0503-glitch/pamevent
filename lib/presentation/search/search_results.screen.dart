@@ -4,8 +4,9 @@ import '../event/event_details.screen.dart';
 
 class SearchResultsScreen extends StatefulWidget {
   final String initialQuery;
+  final VoidCallback? onMenuTap;
 
-  const SearchResultsScreen({super.key, this.initialQuery = ''});
+  const SearchResultsScreen({super.key, this.initialQuery = '', this.onMenuTap});
 
   @override
   State<SearchResultsScreen> createState() => _SearchResultsScreenState();
@@ -30,12 +31,33 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.white,
+      appBar: AppBar(
+        backgroundColor: AppColors.white,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.menu, color: AppColors.black),
+          onPressed: widget.onMenuTap,
+        ),
+        title: const Text(
+          'Search',
+          style: TextStyle(color: AppColors.black, fontWeight: FontWeight.bold),
+        ),
+        centerTitle: true,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.filter_list, color: AppColors.black),
+            onPressed: () {
+              // Handle filter action
+            },
+          ),
+        ],
+      ),
       body: SafeArea(
         child: Column(
           children: [
             // Search Bar Header
             Padding(
-              padding: const EdgeInsets.all(16.0),
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
               child: Row(
                 children: [
                   Expanded(
@@ -73,26 +95,13 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
                       padding: const EdgeInsets.symmetric(horizontal: 16.0),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text(
+                        children: const [
+                          Text(
                             'Popular',
                             style: TextStyle(
                               fontSize: 22,
                               fontWeight: FontWeight.bold,
                               color: AppColors.black,
-                            ),
-                          ),
-                          TextButton.icon(
-                            onPressed: () {},
-                            icon: const Icon(Icons.filter_list, color: AppColors.black, size: 18),
-                            label: const Text(
-                              'Filters',
-                              style: TextStyle(color: AppColors.black, fontSize: 14),
-                            ),
-                            style: TextButton.styleFrom(
-                              padding: EdgeInsets.zero,
-                              minimumSize: Size.zero,
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                             ),
                           ),
                         ],
@@ -104,6 +113,7 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
                       child: Column(
                         children: [
                           _buildEventItem(
+                            eventId: 0,
                             imageUrl: 'https://picsum.photos/200/200?random=1',
                             title: 'Come to celebrate',
                             location: 'Boukanye',
@@ -115,6 +125,7 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
                           ),
                           const SizedBox(height: 16),
                           _buildEventItem(
+                            eventId: 0,
                             imageUrl: 'https://picsum.photos/200/200?random=2',
                             title: 'Vayb & Princeess Lover',
                             location: 'Lakay bar restaurant',
@@ -126,6 +137,7 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
                           ),
                           const SizedBox(height: 16),
                           _buildEventItem(
+                            eventId: 0,
                             imageUrl: 'https://picsum.photos/200/200?random=3',
                             title: 'The Last Party 2.0',
                             location: 'Parc St therese',
@@ -187,6 +199,7 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
   }
 
   Widget _buildEventItem({
+    required int eventId,
     required String imageUrl,
     required String title,
     required String location,
@@ -202,8 +215,10 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
           context,
           MaterialPageRoute(
             builder: (context) => EventDetailsScreen(
+              eventId: eventId,
               title: title,
               imageUrl: imageUrl,
+              price: price,
             ),
           ),
         );

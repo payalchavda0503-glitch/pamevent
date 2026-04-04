@@ -5,6 +5,7 @@ import '../../../helpers/app_state.dart';
 import '../../../helpers/public_url.dart';
 import '../../../services/toast.service.dart';
 import '../../auth/login.screen.dart';
+import '../../artist/artists.screen.dart';
 import '../app_web_view.screen.dart';
 
 /// Drawer menus (same base for guest & logged-in; auth adds the last two).
@@ -73,7 +74,9 @@ class AppDrawer extends StatelessWidget {
         title: const Text('Artists'),
         onTap: () {
           Navigator.pop(context);
-          onTabSelected?.call(1);
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const ArtistsScreen()),
+          );
         },
       ),
       ListTile(

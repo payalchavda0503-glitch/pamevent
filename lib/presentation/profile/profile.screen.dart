@@ -11,7 +11,8 @@ import 'delete_account.screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   final VoidCallback? onBack;
-  const ProfileScreen({super.key, this.onBack});
+  final VoidCallback? onMenuTap;
+  const ProfileScreen({super.key, this.onBack, this.onMenuTap});
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -28,48 +29,31 @@ class _ProfileScreenState extends State<ProfileScreen> {
         if (!AppState.loggedIn) {
           return Scaffold(
             backgroundColor: AppColors.white,
+            appBar: AppBar(
+              backgroundColor: AppColors.white,
+              elevation: 0,
+              leading: IconButton(
+                icon: const Icon(Icons.menu, color: AppColors.black),
+                onPressed: widget.onMenuTap,
+              ),
+              title: const Text(
+                'My Profile',
+                style: TextStyle(color: AppColors.black, fontWeight: FontWeight.bold),
+              ),
+              centerTitle: true,
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.filter_list, color: AppColors.black),
+                  onPressed: () {
+                    // Handle filter action
+                  },
+                ),
+              ],
+            ),
             body: SafeArea(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        GestureDetector(
-                          onTap: () {
-                            if (Navigator.canPop(context)) {
-                              Navigator.pop(context);
-                            } else if (widget.onBack != null) {
-                              widget.onBack!();
-                            }
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: const BoxDecoration(
-                              color: AppColors.black,
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.arrow_back,
-                              color: AppColors.white,
-                              size: 20,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 24),
-                        const Text(
-                          'My profile',
-                          style: TextStyle(
-                            fontSize: 28,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.black,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
                   Expanded(
                     child: Center(
                       child: Padding(
@@ -108,6 +92,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
         return Scaffold(
       backgroundColor: AppColors.white,
+      appBar: AppBar(
+        backgroundColor: AppColors.white,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.menu, color: AppColors.black),
+          onPressed: widget.onMenuTap,
+        ),
+        title: const Text(
+          'My Profile',
+          style: TextStyle(color: AppColors.black, fontWeight: FontWeight.bold),
+        ),
+        centerTitle: true,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.filter_list, color: AppColors.black),
+            onPressed: () {
+              // Handle filter action
+            },
+          ),
+        ],
+      ),
       body: SafeArea(
         child: SingleChildScrollView(
           child: Padding(
@@ -115,40 +120,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Back Button
-                GestureDetector(
-                  onTap: () {
-                    if (Navigator.canPop(context)) {
-                      Navigator.pop(context);
-                    } else if (widget.onBack != null) {
-                      widget.onBack!();
-                    }
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: const BoxDecoration(
-                      color: AppColors.black,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.arrow_back,
-                      color: AppColors.white,
-                      size: 20,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 24),
-                
-                // My Profile Header
-                const Text(
-                  'My profile',
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.black,
-                  ),
-                ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 8),
                 
                 // Profile Info Section
                 Row(

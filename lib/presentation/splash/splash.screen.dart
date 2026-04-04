@@ -26,7 +26,7 @@ class _SplashScreenState extends State<SplashScreen> {
       ApiClient.setVersionHeader(AppVersion.buildNumber);
       await fetchSettings();
       await Future.delayed(const Duration(seconds: 2));
-      final dest = AppState.loggedIn ? const MainLayout() : const LoginScreen();
+      const dest = MainLayout();
       if (mounted) context.replace(dest);
     });
   }

@@ -101,6 +101,136 @@ class ApiClient {
     return null;
   }
 
+  static Future<Map<String, dynamic>?> home() async {
+    try {
+      final response = await _dio.getUri(ApiConfig.home);
+      if (response.data['status'] == 100) {
+        return response.data['data'];
+      } else if (response.data['status'] == 101) {
+        handleToastMessage(response.data['message']);
+      }
+    } catch (exception) {
+      if (kDebugMode) rethrow;
+      dev.log('Error in home ======> $exception');
+    }
+    return null;
+  }
+
+  static Future<List<dynamic>?> getCategories() async {
+    try {
+      final response = await _dio.getUri(ApiConfig.categories);
+      print('Categories API Full Response: ${response.data}');
+      if (response.data['status'] == 100) {
+        return response.data['data'] ?? [];
+      } else if (response.data['status'] == 101) {
+        handleToastMessage(response.data['message']);
+      }
+    } catch (exception) {
+      if (kDebugMode) rethrow;
+      dev.log('Error in getCategories ======> $exception');
+    }
+    return null;
+  }
+
+  static Future<Map<String, dynamic>?> getProfile() async {
+    try {
+      final response = await _dio.getUri(ApiConfig.profile);
+      if (response.data['status'] == 100) {
+        return response.data['data'];
+      } else if (response.data['status'] == 101) {
+        handleToastMessage(response.data['message']);
+      }
+    } catch (exception) {
+      if (kDebugMode) rethrow;
+      dev.log('Error in getProfile ======> $exception');
+    }
+    return null;
+  }
+
+  static Future<Map<String, dynamic>?> getCustomerEvents({int page = 1}) async {
+    try {
+      final response = await _dio.postUri(
+        ApiConfig.customerEvents,
+        data: FormData.fromMap({'page': page}),
+      );
+      if (response.data['status'] == 100) {
+        return response.data['data'];
+      } else if (response.data['status'] == 101) {
+        handleToastMessage(response.data['message']);
+      }
+    } catch (exception) {
+      if (kDebugMode) rethrow;
+      dev.log('Error in getCustomerEvents ======> $exception');
+    }
+    return null;
+  }
+
+  static Future<Map<String, dynamic>?> getCustomerEventDetail(int eventId) async {
+    try {
+      final response = await _dio.postUri(
+        ApiConfig.customerEventDetail,
+        data: FormData.fromMap({'event_id': eventId}),
+      );
+      print('Event Detail API Response: ${response.data}');
+      if (response.data['status'] == 100) {
+        return response.data['data'];
+      } else if (response.data['status'] == 101) {
+        handleToastMessage(response.data['message']);
+      }
+    } catch (exception) {
+      if (kDebugMode) rethrow;
+      dev.log('Error in getCustomerEventDetail ======> $exception');
+    }
+    return null;
+  }
+
+  static Future<List<dynamic>?> getArtists(String artistIds) async {
+    try {
+      final response = await _dio.getUri(
+        ApiConfig.artists.replace(queryParameters: {'artist': artistIds}),
+      );
+      print('Artists API Response: ${response.data}');
+      if (response.data['status'] == 100) {
+        final data = response.data['data'];
+        if (data is List) {
+          return data;
+        } else if (data is Map && data['artists'] is List) {
+          return data['artists'];
+        } else if (data is Map) {
+          // If it's a map but no 'artists' key, maybe it's just one artist or something else
+          // Return as a list with one item or an empty list to avoid crash
+          return [data];
+        }
+      } else if (response.data['status'] == 101) {
+        handleToastMessage(response.data['message']);
+      }
+    } catch (exception) {
+      if (kDebugMode) rethrow;
+      dev.log('Error in getArtists ======> $exception');
+    }
+    return null;
+  }
+
+  static Future<dynamic> getAllArtists({int page = 1, int perPage = 20}) async {
+    try {
+      final response = await _dio.getUri(
+        ApiConfig.artists.replace(queryParameters: {
+          'page': page.toString(),
+          'per_page': perPage.toString(),
+        }),
+      );
+      if (response.data['status'] == 100) {
+        return response.data['data'];
+      } else if (response.data['status'] == 101) {
+        handleToastMessage(response.data['message']);
+      }
+    } catch (exception) {
+      if (kDebugMode) rethrow;
+      dev.log('Error in getAllArtists ======> $exception');
+    }
+    return null;
+  }
+
   static Future<Profile?> login(String username, String password) async {
     try {
       final response = await _dio.postUri(

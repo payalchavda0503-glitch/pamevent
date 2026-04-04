@@ -3,7 +3,8 @@ import '../../helpers/app_colors.dart';
 import 'ticket_details.screen.dart';
 
 class MyTicketsListScreen extends StatefulWidget {
-  const MyTicketsListScreen({super.key});
+  final VoidCallback? onMenuTap;
+  const MyTicketsListScreen({super.key, this.onMenuTap});
 
   @override
   State<MyTicketsListScreen> createState() => _MyTicketsListScreenState();
@@ -16,43 +17,33 @@ class _MyTicketsListScreenState extends State<MyTicketsListScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.white,
+      appBar: AppBar(
+        backgroundColor: AppColors.white,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.menu, color: AppColors.black),
+          onPressed: widget.onMenuTap,
+        ),
+        title: const Text(
+          'My Tickets',
+          style: TextStyle(color: AppColors.black, fontWeight: FontWeight.bold),
+        ),
+        centerTitle: true,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.filter_list, color: AppColors.black),
+            onPressed: () {
+              // Handle filter action
+            },
+          ),
+        ],
+      ),
       body: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  GestureDetector(
-                    onTap: () {
-                      // Handle back navigation if needed
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: const BoxDecoration(
-                        color: AppColors.black,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(Icons.arrow_back_ios_new, color: AppColors.white, size: 16),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'My Tickets',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.black,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
             // Tabs
+            const SizedBox(height: 16),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16.0),
               child: Row(
