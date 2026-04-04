@@ -3,6 +3,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../../api/api.client.dart';
 import '../../helpers/app_colors.dart';
 import '../../helpers/public_url.dart';
+import '../search/artist_details.screen.dart';
 
 class ArtistsScreen extends StatefulWidget {
   const ArtistsScreen({super.key});
@@ -153,41 +154,58 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
                     artist['profile_photo_url'] ?? 
                     resolvePublicUrl(artist['photo'] ?? artist['image'] ?? artist['avatar']) ?? 
                     'https://picsum.photos/200/200';
+    final slug = artist['slug'] ?? artist['username'] ?? '';
 
-    return Column(
-      children: [
-        Expanded(
-          child: AspectRatio(
-            aspectRatio: 1,
-            child: ClipOval(
-              child: CachedNetworkImage(
+    return GestureDetector(
+      onTap: () {
+        if (slug.isNotEmpty) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => ArtistDetailsScreen(
+                name: name,
                 imageUrl: imageUrl,
-                fit: BoxFit.cover,
-                placeholder: (context, url) => Container(
-                  color: AppColors.lightGrey,
-                  child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
-                ),
-                errorWidget: (context, url, error) => Container(
-                  color: AppColors.lightGrey,
-                  child: const Icon(Icons.person, color: AppColors.grey, size: 40),
+                artistSlug: slug,
+              ),
+            ),
+          );
+        }
+      },
+      child: Column(
+        children: [
+          Expanded(
+            child: AspectRatio(
+              aspectRatio: 1,
+              child: ClipOval(
+                child: CachedNetworkImage(
+                  imageUrl: imageUrl,
+                  fit: BoxFit.cover,
+                  placeholder: (context, url) => Container(
+                    color: AppColors.lightGrey,
+                    child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                  ),
+                  errorWidget: (context, url, error) => Container(
+                    color: AppColors.lightGrey,
+                    child: const Icon(Icons.person, color: AppColors.grey, size: 40),
+                  ),
                 ),
               ),
             ),
           ),
-        ),
-        const SizedBox(height: 12),
-        Text(
-          name,
-          style: const TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 16,
-            color: AppColors.black,
+          const SizedBox(height: 12),
+          Text(
+            name,
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+              color: AppColors.black,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
           ),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          textAlign: TextAlign.center,
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

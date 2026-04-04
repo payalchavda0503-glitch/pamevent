@@ -2,7 +2,7 @@ import 'dart:developer' as dev show log;
 
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart' show DioForNative;
-import 'package:flutter/foundation.dart' show defaultTargetPlatform, kDebugMode;
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, kDebugMode, debugPrint;
 
 import '../helpers/extensions/string.extension.dart';
 import '../services/toast.service.dart';
@@ -227,6 +227,38 @@ class ApiClient {
     } catch (exception) {
       if (kDebugMode) rethrow;
       dev.log('Error in getAllArtists ======> $exception');
+    }
+    return null;
+  }
+
+  static Future<Map<String, dynamic>?> getCustomerArtistDetail(String slug) async {
+    try {
+      final url = ApiConfig.getArtistDetail(slug);
+      debugPrint('Fetching Artist Detail from URL: $url');
+      final response = await _dio.getUri(url);
+      if (response.data['status'] == 100) {
+        return response.data['data'];
+      } else if (response.data['status'] == 101) {
+        handleToastMessage(response.data['message']);
+      }
+    } catch (exception) {
+      if (kDebugMode) rethrow;
+      dev.log('Error in getCustomerArtistDetail ======> $exception');
+    }
+    return null;
+  }
+
+  static Future<Map<String, dynamic>?> customerSearch(String query) async {
+    try {
+      final response = await _dio.getUri(ApiConfig.customerSearch(query));
+      if (response.data['status'] == 100) {
+        return response.data['data'];
+      } else if (response.data['status'] == 101) {
+        handleToastMessage(response.data['message']);
+      }
+    } catch (exception) {
+      if (kDebugMode) rethrow;
+      dev.log('Error in customerSearch ======> $exception');
     }
     return null;
   }

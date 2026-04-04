@@ -12,6 +12,10 @@ class ApiConfig {
   static Uri get customerEvents => Uri.parse('$_customerBaseUrl/events');
   static Uri get customerEventDetail => Uri.parse('$_customerBaseUrl/event_detail');
   static Uri get artists => Uri.parse('$_customerBaseUrl/artists');
+  static Uri customerSearch(String query) => Uri.parse('$_customerBaseUrl/search?q=$query');
+  static Uri getArtistDetail(String slug) {
+    return Uri.parse('$_customerBaseUrl/artist/$slug');
+  }
 
   /// Auth
   static Uri get login => Uri.parse('$_serverBaseUrl/login');

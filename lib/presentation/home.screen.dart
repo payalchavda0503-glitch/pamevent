@@ -8,6 +8,7 @@ import '../services/toast.service.dart';
 import 'event/event_details.screen.dart';
 import 'event/all_events.screen.dart';
 import 'search/search_results.screen.dart';
+import 'search/artist_details.screen.dart';
 import 'shared/widgets/custom_text_field.widget.dart';
 import 'shared/widgets/filter_bottom_sheet.widget.dart';
 
@@ -263,32 +264,48 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildArtistItem(String name, String imageUrl) {
-    return Column(
-      children: [
-        CircleAvatar(
-          radius: 40,
-          backgroundImage: NetworkImage(imageUrl),
-          backgroundColor: AppColors.lightGrey,
-        ),
-        const SizedBox(height: 8),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-          decoration: BoxDecoration(
-            border: Border.all(color: AppColors.lightGrey),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Text(
-            name,
-            style: const TextStyle(
-              fontSize: 12,
-              color: AppColors.black,
+  Widget _buildArtistItem(String name, String imageUrl, String slug) {
+    return GestureDetector(
+      onTap: () {
+        if (slug.isNotEmpty) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => ArtistDetailsScreen(
+                name: name,
+                imageUrl: imageUrl,
+                artistSlug: slug,
+              ),
             ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+          );
+        }
+      },
+      child: Column(
+        children: [
+          CircleAvatar(
+            radius: 40,
+            backgroundImage: NetworkImage(imageUrl),
+            backgroundColor: AppColors.lightGrey,
           ),
-        ),
-      ],
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            decoration: BoxDecoration(
+              border: Border.all(color: AppColors.lightGrey),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              name,
+              style: const TextStyle(
+                fontSize: 12,
+                color: AppColors.black,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
     );
   }
 

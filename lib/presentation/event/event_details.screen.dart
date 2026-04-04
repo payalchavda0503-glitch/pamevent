@@ -4,6 +4,7 @@ import '../../api/api.client.dart';
 import '../../helpers/app_colors.dart';
 import '../../helpers/public_url.dart';
 import '../shared/widgets/custom_button.widget.dart';
+import '../search/artist_details.screen.dart';
 
 class EventDetailsScreen extends StatefulWidget {
   final int eventId;
@@ -107,10 +108,6 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                         icon: const Icon(Icons.ios_share, color: AppColors.black),
                         onPressed: () {},
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.bookmark_border, color: AppColors.black),
-                        onPressed: () {},
-                      ),
                     ],
                   ),
                 ],
@@ -125,40 +122,24 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       // Event Image
-                      Stack(
-                        children: [
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(16),
-                            child: CachedNetworkImage(
-                              imageUrl: resolvePublicUrl(imageUrl) ?? imageUrl,
-                              width: double.infinity,
-                              height: 200,
-                              fit: BoxFit.cover,
-                              placeholder: (context, url) => Container(
-                                height: 200,
-                                color: AppColors.lightGrey,
-                                child: const Center(child: CircularProgressIndicator()),
-                              ),
-                              errorWidget: (context, url, error) => Container(
-                                height: 200,
-                                color: AppColors.lightGrey,
-                                child: const Icon(Icons.image_not_supported),
-                              ),
-                            ),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(16),
+                        child: CachedNetworkImage(
+                          imageUrl: resolvePublicUrl(imageUrl) ?? imageUrl,
+                          width: double.infinity,
+                          height: 200,
+                          fit: BoxFit.cover,
+                          placeholder: (context, url) => Container(
+                            height: 200,
+                            color: AppColors.lightGrey,
+                            child: const Center(child: CircularProgressIndicator()),
                           ),
-                          Positioned(
-                            top: 12,
-                            right: 12,
-                            child: Container(
-                              padding: const EdgeInsets.all(6),
-                              decoration: BoxDecoration(
-                                color: AppColors.white.withValues(alpha: 0.8),
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(Icons.bookmark_border, size: 18),
-                            ),
+                          errorWidget: (context, url, error) => Container(
+                            height: 200,
+                            color: AppColors.lightGrey,
+                            child: const Icon(Icons.image_not_supported),
                           ),
-                        ],
+                        ),
                       ),
                       const SizedBox(height: 16),
 
@@ -307,6 +288,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                                 child: _buildPerformer(
                                   artist['name'] ?? artist['username'] ?? 'Artist',
                                   resolvePublicUrl(artist['photo'] ?? artist['image'] ?? artist['avatar']) ?? 'https://picsum.photos/100/100',
+                                  artist['slug'] ?? artist['username'] ?? '',
                                 ),
                               );
                             }).toList(),
@@ -446,34 +428,50 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
     );
   }
 
-  Widget _buildPerformer(String name, String imageUrl) {
-    return Column(
-      children: [
-        CachedNetworkImage(
-          imageUrl: imageUrl,
-          imageBuilder: (context, imageProvider) => CircleAvatar(
-            radius: 30,
-            backgroundImage: imageProvider,
+  Widget _buildPerformer(String name, String imageUrl, String slug) {
+    return GestureDetector(
+      onTap: () {
+        if (slug.isNotEmpty) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => ArtistDetailsScreen(
+                name: name,
+                imageUrl: imageUrl,
+                artistSlug: slug,
+              ),
+            ),
+          );
+        }
+      },
+      child: Column(
+        children: [
+          CachedNetworkImage(
+            imageUrl: imageUrl,
+            imageBuilder: (context, imageProvider) => CircleAvatar(
+              radius: 30,
+              backgroundImage: imageProvider,
+            ),
+            placeholder: (context, url) => const CircleAvatar(
+              radius: 30,
+              backgroundColor: AppColors.lightGrey,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            errorWidget: (context, url, error) => const CircleAvatar(
+              radius: 30,
+              backgroundColor: AppColors.lightGrey,
+              child: Icon(Icons.person, color: AppColors.grey),
+            ),
           ),
-          placeholder: (context, url) => const CircleAvatar(
-            radius: 30,
-            backgroundColor: AppColors.lightGrey,
-            child: CircularProgressIndicator(strokeWidth: 2),
+          const SizedBox(height: 8),
+          Text(
+            name,
+            style: const TextStyle(fontSize: 12),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
-          errorWidget: (context, url, error) => const CircleAvatar(
-            radius: 30,
-            backgroundColor: AppColors.lightGrey,
-            child: Icon(Icons.person, color: AppColors.grey),
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          name,
-          style: const TextStyle(fontSize: 12),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
