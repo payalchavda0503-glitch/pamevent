@@ -9,12 +9,14 @@ import 'event/event_details.screen.dart';
 import 'event/all_events.screen.dart';
 import 'search/search_results.screen.dart';
 import 'search/artist_details.screen.dart';
+import 'shared/widgets/custom_image.dart';
 import 'shared/widgets/custom_text_field.widget.dart';
 import 'shared/widgets/filter_bottom_sheet.widget.dart';
 
 class HomeScreen extends StatefulWidget {
   final VoidCallback? onMenuTap;
-  const HomeScreen({super.key, this.onMenuTap});
+  final VoidCallback? onSearchTap;
+  const HomeScreen({super.key, this.onMenuTap, this.onSearchTap});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -25,6 +27,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isLoading = true;
   List<dynamic> _events = [];
   List<dynamic> _categories = [];
+  Map<String, dynamic>? _activeFilters;
 
   @override
   void initState() {
@@ -44,9 +47,11 @@ class _HomeScreenState extends State<HomeScreen> {
         // Extracting categories from home API
         _categories = homeData?['categories'] ?? [];
         
-        // Extracting events from home API (checking multiple possible keys)
-        final eventsList = homeData?['upcoming_events'] ?? homeData?['events'] ?? [];
-        _events = eventsList is List ? eventsList : [];
+        // Only update events if no filters are active
+        if (_activeFilters == null) {
+          final eventsList = homeData?['upcoming_events'] ?? homeData?['events'] ?? [];
+          _events = eventsList is List ? eventsList : [];
+        }
         
         if (_events.isNotEmpty) {
           print('First event data sample: ${_events.first}');
@@ -60,6 +65,46 @@ class _HomeScreenState extends State<HomeScreen> {
       print('Stack trace: $stack');
       setState(() => _isLoading = false);
     }
+  }
+
+  Future<void> _applyFilters(Map<String, dynamic> filters) async {
+    setState(() {
+      _isLoading = true;
+      _activeFilters = filters;
+    });
+    
+    try {
+      final results = await ApiClient.getCustomerEvents(
+        category: filters['category'],
+        eventType: filters['event'],
+        dates: filters['dates'],
+        minPrice: filters['min'],
+        maxPrice: filters['max'],
+      );
+      
+      setState(() {
+        if (results != null) {
+          if (results['events'] != null && results['events']['data'] is List) {
+            _events = results['events']['data'];
+          } else if (results['data'] is List) {
+            _events = results['data'];
+          } else {
+            _events = [];
+          }
+        }
+        _isLoading = false;
+      });
+    } catch (e) {
+      print('Error applying filters on home: $e');
+      setState(() => _isLoading = false);
+    }
+  }
+
+  void _resetFilters() {
+    setState(() {
+      _activeFilters = null;
+    });
+    _fetchHomeData();
   }
 
   @override
@@ -93,9 +138,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             const SizedBox(width: 4),
                             Expanded(
                               child: GestureDetector(
-                                onTap: () {
-                                  // Handle search tap
-                                },
+                                onTap: widget.onSearchTap,
                                 child: Container(
                                   decoration: BoxDecoration(
                                     color: AppColors.scaffold,
@@ -121,14 +164,21 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                             const SizedBox(width: 4),
                             IconButton(
-                              icon: const Icon(Icons.filter_list, color: AppColors.black),
-                              onPressed: () {
-                                showModalBottomSheet(
+                              icon: Icon(
+                                Icons.filter_list,
+                                color: _activeFilters != null ? AppColors.primary : AppColors.black,
+                              ),
+                              onPressed: () async {
+                                final filters = await showModalBottomSheet<Map<String, dynamic>>(
                                   context: context,
                                   isScrollControlled: true,
                                   backgroundColor: Colors.transparent,
-                                  builder: (context) => const FilterBottomSheet(),
+                                  builder: (context) => FilterBottomSheet(initialFilters: _activeFilters),
                                 );
+                                
+                                if (filters != null && mounted) {
+                                  _applyFilters(filters);
+                                }
                               },
                             ),
                           ],
@@ -138,15 +188,23 @@ class _HomeScreenState extends State<HomeScreen> {
                         // Events Section Header
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: const [
+                          children: [
                             Text(
-                              'Events',
-                              style: TextStyle(
+                              _activeFilters != null ? 'Filtered Events' : 'Events',
+                              style: const TextStyle(
                                 fontSize: 22,
                                 fontWeight: FontWeight.bold,
                                 color: AppColors.black,
                               ),
                             ),
+                            if (_activeFilters != null)
+                              TextButton(
+                                onPressed: _resetFilters,
+                                child: const Text(
+                                  'Reset Filters',
+                                  style: TextStyle(color: AppColors.primary),
+                                ),
+                              ),
                           ],
                         ),
                         const SizedBox(height: 16),
@@ -282,10 +340,28 @@ class _HomeScreenState extends State<HomeScreen> {
       },
       child: Column(
         children: [
-          CircleAvatar(
-            radius: 40,
-            backgroundImage: NetworkImage(imageUrl),
-            backgroundColor: AppColors.lightGrey,
+          Container(
+            width: 80,
+            height: 80,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: AppColors.lightGrey),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(40),
+              child: CustomImage(
+                imageUrl,
+                width: 80,
+                height: 80,
+                fit: BoxFit.cover,
+                whenEmpty: Container(
+                  width: 80,
+                  height: 80,
+                  color: AppColors.lightGrey,
+                  child: const Icon(Icons.person, color: AppColors.grey),
+                ),
+              ),
+            ),
           ),
           const SizedBox(height: 8),
           Container(
@@ -339,23 +415,11 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
         ClipRRect(
           borderRadius: BorderRadius.circular(12),
-          child: CachedNetworkImage(
-            imageUrl: imageUrl,
+          child: CustomImage(
+            imageUrl,
             width: 120,
             height: 120,
             fit: BoxFit.cover,
-            placeholder: (context, url) => Container(
-              width: 120,
-              height: 120,
-              color: AppColors.lightGrey,
-              child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
-            ),
-            errorWidget: (context, url, error) => Container(
-              width: 120,
-              height: 120,
-              color: AppColors.lightGrey,
-              child: const Icon(Icons.image_not_supported, color: AppColors.grey),
-            ),
           ),
         ),
         const SizedBox(width: 12),
@@ -453,14 +517,10 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          CachedNetworkImage(
-            imageUrl: imageUrl,
+          CustomImage(
+            imageUrl,
             fit: BoxFit.cover,
-            placeholder: (context, url) => Container(
-              color: AppColors.lightGrey,
-              child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
-            ),
-            errorWidget: (context, url, error) => Container(
+            whenEmpty: Container(
               color: AppColors.lightGrey,
               child: const Center(
                 child: Icon(

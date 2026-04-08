@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import '../../api/api.client.dart';
 import '../../helpers/app_colors.dart';
 import '../../helpers/app_state.dart';
+import '../../helpers/public_url.dart';
 import '../../helpers/extensions/context.extension.dart';
 import '../auth/login.screen.dart';
 import '../shared/widgets/custom_button.widget.dart';
+import '../shared/widgets/custom_image.dart';
 import 'account_information.screen.dart';
 import 'edit_profile.screen.dart';
 import 'change_password.screen.dart';
@@ -20,6 +23,27 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   String _activeTab = 'Details';
+  Map<String, dynamic>? _profileData;
+  bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (AppState.loggedIn) {
+      _fetchProfile();
+    }
+  }
+
+  Future<void> _fetchProfile() async {
+    setState(() => _isLoading = true);
+    final data = await ApiClient.fetchProfile();
+    if (mounted) {
+      setState(() {
+        _profileData = data;
+        _isLoading = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -41,14 +65,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 style: TextStyle(color: AppColors.black, fontWeight: FontWeight.bold),
               ),
               centerTitle: true,
-              actions: [
-                IconButton(
-                  icon: const Icon(Icons.filter_list, color: AppColors.black),
-                  onPressed: () {
-                    // Handle filter action
-                  },
-                ),
-              ],
             ),
             body: SafeArea(
               child: Column(
@@ -88,101 +104,108 @@ class _ProfileScreenState extends State<ProfileScreen> {
           );
         }
 
-        final profile = AppState.profile;
-
         return Scaffold(
-      backgroundColor: AppColors.white,
-      appBar: AppBar(
-        backgroundColor: AppColors.white,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.menu, color: AppColors.black),
-          onPressed: widget.onMenuTap,
-        ),
-        title: const Text(
-          'My Profile',
-          style: TextStyle(color: AppColors.black, fontWeight: FontWeight.bold),
-        ),
-        centerTitle: true,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.filter_list, color: AppColors.black),
-            onPressed: () {
-              // Handle filter action
-            },
+          backgroundColor: AppColors.white,
+          appBar: AppBar(
+            backgroundColor: AppColors.white,
+            elevation: 0,
+            leading: IconButton(
+              icon: const Icon(Icons.menu, color: AppColors.black),
+              onPressed: widget.onMenuTap,
+            ),
+            title: const Text(
+              'My Profile',
+              style: TextStyle(color: AppColors.black, fontWeight: FontWeight.bold),
+            ),
+            centerTitle: true,
           ),
-        ],
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 8),
-                
-                // Profile Info Section
-                Row(
-                  children: [
-                    const CircleAvatar(
-                      radius: 40,
-                      backgroundImage: NetworkImage('https://picsum.photos/200/200?random=10'),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Text(
-                        profile?.username ?? 'Rachelle Jean Marie',
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w500,
-                          color: AppColors.black,
-                        ),
+          body: _isLoading 
+            ? const Center(child: CircularProgressIndicator())
+            : SafeArea(
+                child: RefreshIndicator(
+                  onRefresh: _fetchProfile,
+                  child: SingleChildScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const SizedBox(height: 8),
+                          
+                          // Profile Info Section
+                          Row(
+                            children: [
+                              Container(
+                                width: 80,
+                                height: 80,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: AppColors.lightGrey),
+                                ),
+                                child: ClipOval(
+                                  child: CustomImage(
+                                    resolvePublicUrl(_profileData?['photo']),
+                                    fit: BoxFit.cover,
+                                    whenEmpty: const Icon(Icons.person, size: 40, color: AppColors.grey),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Text(
+                                  _profileData?['name'] ?? _profileData?['username'] ?? 'User',
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w500,
+                                    color: AppColors.black,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 24),
+                          
+                          // Tabs/Buttons: Details and Security
+                          Row(
+                            children: [
+                              _buildOutlineButton(
+                                'Details',
+                                isActive: _activeTab == 'Details',
+                                onTap: () {
+                                  setState(() {
+                                    _activeTab = 'Details';
+                                  });
+                                },
+                              ),
+                              const SizedBox(width: 12),
+                              _buildOutlineButton(
+                                'Security',
+                                isActive: _activeTab == 'Security',
+                                onTap: () {
+                                  setState(() {
+                                    _activeTab = 'Security';
+                                  });
+                                },
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 32),
+                          
+                          // Content based on active tab
+                          if (_activeTab == 'Details')
+                            _buildAccountInformation()
+                          else
+                            _buildSecurityContent(),
+                          
+                          const SizedBox(height: 24),
+                        ],
                       ),
                     ),
-                  ],
+                  ),
                 ),
-                const SizedBox(height: 24),
-                
-                // Tabs/Buttons: Details and Security
-                Row(
-                  children: [
-                    _buildOutlineButton(
-                      'Details',
-                      isActive: _activeTab == 'Details',
-                      onTap: () {
-                        setState(() {
-                          _activeTab = 'Details';
-                        });
-                      },
-                    ),
-                    const SizedBox(width: 12),
-                    _buildOutlineButton(
-                      'Security',
-                      isActive: _activeTab == 'Security',
-                      onTap: () {
-                        setState(() {
-                          _activeTab = 'Security';
-                        });
-                      },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 32),
-                
-                // Content based on active tab
-                if (_activeTab == 'Details')
-                  _buildAccountInformation()
-                else
-                  _buildSecurityContent(),
-                
-                const SizedBox(height: 24),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
+              ),
+        );
       },
     );
   }
@@ -203,13 +226,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
             ),
             TextButton.icon(
-              onPressed: () {
-                Navigator.push(
+              onPressed: () async {
+                final result = await Navigator.push(
                   context,
                   MaterialPageRoute(
                     builder: (context) => const EditProfileScreen(),
                   ),
                 );
+                if (result == true) {
+                  _fetchProfile();
+                }
               },
               icon: const Icon(Icons.edit, size: 16, color: AppColors.primary),
               label: const Text(
@@ -239,14 +265,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         ),
         const SizedBox(height: 24),
-        _buildInfoRow('Email :', 'rakeshsolanki60@gmail.com'),
-        _buildInfoRow('Username :', 'organizer'),
-        _buildInfoRow('Phone :', '+91 1050608090'),
-        _buildInfoRow('Address :', 'Readshoro, North Carolina, United States'),
-        _buildInfoRow('Country :', 'United States'),
-        _buildInfoRow('City :', 'Readshoro'),
-        _buildInfoRow('State :', 'North Carolina'),
-        _buildInfoRow('Zip-code :', '05350'),
+        _buildInfoRow('Email :', _profileData?['email'] ?? '-'),
+        _buildInfoRow('Username :', _profileData?['username'] ?? '-'),
+        _buildInfoRow('Phone :', _profileData?['phone'] ?? '-'),
+        _buildInfoRow('Address :', _profileData?['address'] ?? '-'),
+        _buildInfoRow('Country :', _profileData?['country'] ?? '-'),
+        _buildInfoRow('City :', _profileData?['city'] ?? '-'),
+        _buildInfoRow('State :', _profileData?['state'] ?? '-'),
+        _buildInfoRow('Zip-code :', _profileData?['zip_code'] ?? '-'),
       ],
     );
   }

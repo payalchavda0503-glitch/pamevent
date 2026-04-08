@@ -29,14 +29,6 @@ class _MyTicketsListScreenState extends State<MyTicketsListScreen> {
           style: TextStyle(color: AppColors.black, fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.filter_list, color: AppColors.black),
-            onPressed: () {
-              // Handle filter action
-            },
-          ),
-        ],
       ),
       body: SafeArea(
         child: Column(

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:developer' as dev;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
@@ -46,8 +47,8 @@ class AppState {
   //region Prefs
   static late final SharedPreferences prefs;
   static Future<void> clearPrefs() async {
-    final keysToClear = PrefKeys.values.where((p) => !p.keepAlive);
-    await Future.wait(keysToClear.map((p) => prefs.remove(p.key)));
+    // Clear all preferences to ensure nothing is left
+    await prefs.clear();
   }
   //endregion
 
@@ -114,14 +115,37 @@ class AppState {
 
   static Future<void> logOut({bool restart = true}) async {
     showLoader();
-    if (await googleSignIn.isSignedIn()) await googleSignIn.signOut();
-    final fbToken = await fbAuth.accessToken;
-    if (fbToken?.tokenString.isNotEmpty ?? false) await fbAuth.logOut();
-    profile = null;
-    ApiClient.removeAuthHeader();
-    await clearPrefs();
-    authRevision.value++;
-    hideLoader();
-    if (restart) resetNavKey();
+    try {
+      // Call Logout API - don't let it block the rest of logout if it fails
+      try {
+        await ApiClient.logout();
+      } catch (e) {
+        dev.log('Logout API failed: $e');
+      }
+      
+      try {
+        if (await googleSignIn.isSignedIn()) await googleSignIn.signOut();
+      } catch (e) {
+        dev.log('Google SignOut failed: $e');
+      }
+
+      try {
+        final fbToken = await fbAuth.accessToken;
+        if (fbToken?.tokenString.isNotEmpty ?? false) await fbAuth.logOut();
+      } catch (e) {
+        dev.log('FB Logout failed: $e');
+      }
+      
+      profile = null;
+      settings = {}; // Clear global settings/categories
+      ApiClient.removeAuthHeader();
+      await clearPrefs();
+      authRevision.value++;
+    } catch (e) {
+      dev.log('Error during logout process: $e');
+    } finally {
+      hideLoader();
+      if (restart) resetNavKey();
+    }
   }
 }

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import '../../../api/api.client.dart';
 import '../../../helpers/app_colors.dart';
 
 class FilterBottomSheet extends StatefulWidget {
-  const FilterBottomSheet({super.key});
+  final Map<String, dynamic>? initialFilters;
+  const FilterBottomSheet({super.key, this.initialFilters});
 
   @override
   State<FilterBottomSheet> createState() => _FilterBottomSheetState();
@@ -11,9 +13,41 @@ class FilterBottomSheet extends StatefulWidget {
 class _FilterBottomSheetState extends State<FilterBottomSheet> {
   final TextEditingController _dateController = TextEditingController();
   String _selectedCategory = 'All';
-  String _selectedEvent = 'Online Events';
+  String _selectedEvent = 'All'; // Changed default to All
   String _selectedPriceType = 'All';
-  RangeValues _currentRangeValues = const RangeValues(5, 73);
+  RangeValues _currentRangeValues = const RangeValues(0, 1000);
+  List<dynamic> _categories = [];
+  bool _isLoadingCategories = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchCategories();
+    if (widget.initialFilters != null) {
+      _selectedCategory = widget.initialFilters!['category'] ?? 'All';
+      _selectedEvent = widget.initialFilters!['event'] ?? 'All';
+      _dateController.text = widget.initialFilters!['dates'] ?? '';
+      final min = double.tryParse(widget.initialFilters!['min'] ?? '0') ?? 0;
+      final max = double.tryParse(widget.initialFilters!['max'] ?? '1000') ?? 1000;
+      _currentRangeValues = RangeValues(min, max);
+    }
+  }
+
+  Future<void> _fetchCategories() async {
+    try {
+      final categories = await ApiClient.getCategories();
+      if (mounted) {
+        setState(() {
+          _categories = categories ?? [];
+          _isLoadingCategories = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoadingCategories = false);
+      }
+    }
+  }
 
   @override
   void dispose() {
@@ -24,7 +58,7 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
   Future<void> _selectDateRange(BuildContext context) async {
     final DateTimeRange? picked = await showDateRangePicker(
       context: context,
-      firstDate: DateTime.now(),
+      firstDate: DateTime(2020),
       lastDate: DateTime(2030),
       helpText: 'Select event date range',
       confirmText: 'SELECT',
@@ -60,10 +94,24 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
       setState(() {
         final start = picked.start;
         final end = picked.end;
+        // API format: "2026-04-01  2026-04-10"
         _dateController.text =
-            '${start.day.toString().padLeft(2, '0')}/${start.month.toString().padLeft(2, '0')}/${start.year} - ${end.day.toString().padLeft(2, '0')}/${end.month.toString().padLeft(2, '0')}/${end.year}';
+            '${start.year}-${start.month.toString().padLeft(2, '0')}-${start.day.toString().padLeft(2, '0')}  ${end.year}-${end.month.toString().padLeft(2, '0')}-${end.day.toString().padLeft(2, '0')}';
       });
     }
+  }
+
+  void _submit() {
+    final filters = <String, dynamic>{};
+    if (_selectedCategory != 'All') filters['category'] = _selectedCategory;
+    if (_selectedEvent != 'All') {
+      filters['event'] = _selectedEvent == 'Online Events' ? 'online' : 'venue';
+    }
+    if (_dateController.text.isNotEmpty) filters['dates'] = _dateController.text;
+    filters['min'] = _currentRangeValues.start.round().toString();
+    filters['max'] = _currentRangeValues.end.round().toString();
+    
+    Navigator.pop(context, filters);
   }
 
   @override
@@ -79,6 +127,27 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Filters',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+                TextButton(
+                  onPressed: () {
+                    setState(() {
+                      _selectedCategory = 'All';
+                      _selectedEvent = 'All';
+                      _dateController.clear();
+                      _currentRangeValues = const RangeValues(0, 1000);
+                    });
+                  },
+                  child: const Text('Reset', style: TextStyle(color: AppColors.primary)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
             // Filter by Date
             const Text(
               'Filter by Date',
@@ -92,11 +161,17 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
               ),
               child: TextField(
                 controller: _dateController,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   hintText: 'Start/End Date',
-                  hintStyle: TextStyle(color: AppColors.grey, fontSize: 13),
-                  contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  hintStyle: const TextStyle(color: AppColors.grey, fontSize: 13),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                   border: InputBorder.none,
+                  suffixIcon: _dateController.text.isNotEmpty 
+                    ? IconButton(
+                        icon: const Icon(Icons.clear, size: 18),
+                        onPressed: () => setState(() => _dateController.clear()),
+                      ) 
+                    : null,
                 ),
                 readOnly: true,
                 onTap: () => _selectDateRange(context),
@@ -122,13 +197,19 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                   isExpanded: true,
                   style: const TextStyle(fontSize: 14, color: AppColors.black),
                   icon: const Icon(Icons.arrow_drop_down, color: AppColors.black),
-                  items: ['All', 'Music', 'Food', 'Social'].map((String value) {
-                    return DropdownMenuItem<String>(
-                      value: value,
-                      child: Text(value),
-                    );
-                  }).toList(),
-                  onChanged: (newValue) {
+                  items: [
+                    const DropdownMenuItem<String>(
+                      value: 'All',
+                      child: Text('All Categories'),
+                    ),
+                    ..._categories.map((cat) {
+                      return DropdownMenuItem<String>(
+                        value: cat['name']?.toString() ?? '',
+                        child: Text(cat['name']?.toString() ?? ''),
+                      );
+                    }).toList(),
+                  ],
+                  onChanged: _isLoadingCategories ? null : (newValue) {
                     setState(() {
                       _selectedCategory = newValue!;
                     });
@@ -140,10 +221,28 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
 
             // Events
             const Text(
-              'Events',
+              'Event Type',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 4),
+            Row(
+              children: [
+                SizedBox(
+                  height: 32,
+                  child: Radio<String>(
+                    value: 'All',
+                    groupValue: _selectedEvent,
+                    activeColor: AppColors.primary,
+                    onChanged: (value) {
+                      setState(() {
+                        _selectedEvent = value!;
+                      });
+                    },
+                  ),
+                ),
+                const Text('All', style: TextStyle(fontSize: 14)),
+              ],
+            ),
             Row(
               children: [
                 SizedBox(
@@ -188,37 +287,20 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              decoration: BoxDecoration(
-                color: AppColors.scaffold,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: DropdownButtonHideUnderline(
-                child: DropdownButton<String>(
-                  value: _selectedPriceType,
-                  isExpanded: true,
-                  style: const TextStyle(fontSize: 14, color: AppColors.black),
-                  icon: const Icon(Icons.arrow_drop_down, color: AppColors.black),
-                  items: ['All', 'Free', 'Paid'].map((String value) {
-                    return DropdownMenuItem<String>(
-                      value: value,
-                      child: Text(value),
-                    );
-                  }).toList(),
-                  onChanged: (newValue) {
-                    setState(() {
-                      _selectedPriceType = newValue!;
-                    });
-                  },
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  '\$${_currentRangeValues.start.round()} - \$${_currentRangeValues.end.round()}',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                 ),
-              ),
+              ],
             ),
             const SizedBox(height: 8),
             RangeSlider(
               values: _currentRangeValues,
               min: 0,
-              max: 100,
+              max: 2000,
               divisions: 100,
               activeColor: AppColors.primary,
               inactiveColor: AppColors.lightGrey,
@@ -228,32 +310,11 @@ class _FilterBottomSheetState extends State<FilterBottomSheet> {
                 });
               },
             ),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  '\$${_currentRangeValues.start.round()} - \$${_currentRangeValues.end.round()}',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                ),
-                ElevatedButton(
-                  onPressed: () {},
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-                  ),
-                  child: const Text(
-                    'Price Filter',
-                    style: TextStyle(color: AppColors.white, fontWeight: FontWeight.bold, fontSize: 13),
-                  ),
-                ),
-              ],
-            ),
             const SizedBox(height: 20),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: () => Navigator.pop(context),
+                onPressed: _submit,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,
                   padding: const EdgeInsets.symmetric(vertical: 14),

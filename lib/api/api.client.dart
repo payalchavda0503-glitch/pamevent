@@ -147,11 +147,39 @@ class ApiClient {
     return null;
   }
 
-  static Future<Map<String, dynamic>?> getCustomerEvents({int page = 1}) async {
+  static Future<Map<String, dynamic>?> getCustomerEvents({
+    int page = 1,
+    String? category,
+    String? eventType,
+    String? searchInput,
+    String? dates,
+    String? minPrice,
+    String? maxPrice,
+  }) async {
     try {
+      final Map<String, dynamic> formDataMap = {'page': page};
+      if (category != null && category.isNotEmpty && category.toLowerCase() != 'all') {
+        formDataMap['category'] = category.toLowerCase();
+      }
+      if (eventType != null && eventType.isNotEmpty) {
+        formDataMap['event'] = eventType.toLowerCase();
+      }
+      if (searchInput != null && searchInput.isNotEmpty) {
+        formDataMap['search-input'] = searchInput;
+      }
+      if (dates != null && dates.isNotEmpty) {
+        formDataMap['dates'] = dates;
+      }
+      if (minPrice != null && minPrice.isNotEmpty) {
+        formDataMap['min'] = minPrice;
+      }
+      if (maxPrice != null && maxPrice.isNotEmpty) {
+        formDataMap['max'] = maxPrice;
+      }
+
       final response = await _dio.postUri(
         ApiConfig.customerEvents,
-        data: FormData.fromMap({'page': page}),
+        data: FormData.fromMap(formDataMap),
       );
       if (response.data['status'] == 100) {
         return response.data['data'];
@@ -263,18 +291,22 @@ class ApiClient {
     return null;
   }
 
-  static Future<Profile?> login(String username, String password) async {
+  static Future<Map<String, dynamic>?> login({
+    required String username,
+    required String password,
+  }) async {
     try {
       final response = await _dio.postUri(
         ApiConfig.login,
-        options: Options(headers: {cacheResponse: false}),
-        data: FormData.fromMap({'username': username, 'password': password}),
+        data: FormData.fromMap({
+          'username': username,
+          'password': password,
+        }),
       );
       if (response.data['status'] == 100) {
-        return Profile.fromJson(response.data['data']);
-      } else if (response.data['status'] == 101) {
-        handleToastMessage(response.data['message']);
-        return null;
+        return response.data;
+      } else {
+        handleToastMessage(response.data['message'] ?? 'Login failed');
       }
     } catch (exception) {
       if (kDebugMode) rethrow;
@@ -357,64 +389,174 @@ class ApiClient {
     return null;
   }
 
-  static Future<bool> register({
+  static Future<Map<String, dynamic>?> register({
     required String name,
     required String username,
     required String email,
+    required String phone,
     required String password,
   }) async {
     try {
       final response = await _dio.postUri(
         ApiConfig.register,
-        options: Options(headers: {cacheResponse: false}),
         data: FormData.fromMap({
-          'name': name.trim(),
-          'username': username.trim(),
-          'email': email.trim(),
+          'name': name,
+          'username': username,
+          'email': email,
+          'phone': phone,
           'password': password,
         }),
       );
-      handleToastMessage(response.data['message']);
-      return response.data['status'] == 100;
+      if (response.data['status'] == 100) {
+        return response.data;
+      } else {
+        handleToastMessage(response.data['message'] ?? 'Registration failed');
+      }
     } catch (exception) {
       if (kDebugMode) rethrow;
-      dev.log('Error in signUp ======> $exception');
+      dev.log('Error in register ======> $exception');
     }
-    return false;
+    return null;
   }
 
-  static Future<String?> forgotPassword(String email) async {
+  static Future<bool> forgotPassword(String email) async {
     try {
       final response = await _dio.postUri(
         ApiConfig.forgotPassword,
-        options: Options(headers: {cacheResponse: false}),
         data: FormData.fromMap({'email': email}),
       );
       if (response.data['status'] == 100) {
-        handleToastMessage(response.data['message']);
-        return response.data['data']['remember_code'];
-      } else if (response.data['status'] == 101) {
-        handleToastMessage(response.data['message']);
+        handleToastMessage(response.data['message'] ?? 'Verification code sent');
+        return true;
+      } else {
+        handleToastMessage(response.data['message'] ?? 'Error sending code');
       }
     } catch (exception) {
       if (kDebugMode) rethrow;
       dev.log('Error in forgotPassword ======> $exception');
     }
-    return null;
+    return false;
   }
 
-  static Future<bool> resetPassword(String email, String password) async {
+  static Future<bool> resetPassword({
+    required String email,
+    required String code,
+    required String password,
+  }) async {
     try {
       final response = await _dio.postUri(
         ApiConfig.resetPassword,
-        options: Options(headers: {cacheResponse: false}),
-        data: FormData.fromMap({'email': email, 'password': password}),
+        data: FormData.fromMap({
+          'email': email,
+          'code': code,
+          'password': password,
+        }),
       );
-      handleToastMessage(response.data['message']);
-      return response.data['status'] == 100;
+      if (response.data['status'] == 100) {
+        handleToastMessage(response.data['message'] ?? 'Password reset successful');
+        return true;
+      } else {
+        handleToastMessage(response.data['message'] ?? 'Error resetting password');
+      }
     } catch (exception) {
       if (kDebugMode) rethrow;
       dev.log('Error in resetPassword ======> $exception');
+    }
+    return false;
+  }
+
+  static Future<Map<String, dynamic>?> fetchProfile() async {
+    try {
+      final response = await _dio.getUri(ApiConfig.profile);
+      if (response.data['status'] == 100) {
+        return response.data['data'];
+      }
+    } catch (exception) {
+      dev.log('Error in fetchProfile ======> $exception');
+    }
+    return null;
+  }
+
+  static Future<bool> updateProfile({
+    required String name,
+    required String email,
+    required String username,
+    required String phone,
+    String? photoPath,
+    String? country,
+    String? state,
+    String? city,
+    String? zipCode,
+    String? address,
+  }) async {
+    try {
+      final Map<String, dynamic> formDataMap = {
+        'name': name,
+        'email': email,
+        'username': username,
+        'phone': phone,
+      };
+
+      if (photoPath != null && photoPath.isNotEmpty) {
+        formDataMap['photo'] = await MultipartFile.fromFile(photoPath);
+      }
+      if (country != null) formDataMap['country'] = country;
+      if (state != null) formDataMap['state'] = state;
+      if (city != null) formDataMap['city'] = city;
+      if (zipCode != null) formDataMap['zip_code'] = zipCode;
+      if (address != null) formDataMap['address'] = address;
+
+      final response = await _dio.postUri(
+        ApiConfig.editProfile,
+        data: FormData.fromMap(formDataMap),
+      );
+
+      if (response.data['status'] == 100) {
+        handleToastMessage(response.data['message'] ?? 'Profile updated successfully');
+        return true;
+      } else {
+        handleToastMessage(response.data['message'] ?? 'Error updating profile');
+      }
+    } catch (exception) {
+      if (kDebugMode) rethrow;
+      dev.log('Error in updateProfile ======> $exception');
+    }
+    return false;
+  }
+
+  static Future<bool> logout() async {
+    try {
+      final response = await _dio.postUri(
+        ApiConfig.logout,
+      );
+      return response.data['status'] == 100;
+    } catch (exception) {
+      dev.log('Error in logout API ======> $exception');
+    }
+    return false;
+  }
+
+  static Future<bool> changePassword({
+    required String oldPassword,
+    required String newPassword,
+  }) async {
+    try {
+      final response = await _dio.postUri(
+        ApiConfig.changePassword,
+        data: FormData.fromMap({
+          'old_password': oldPassword,
+          'new_password': newPassword,
+        }),
+      );
+      if (response.data['status'] == 100) {
+        handleToastMessage(response.data['message'] ?? 'Password changed successfully');
+        return true;
+      } else {
+        handleToastMessage(response.data['message'] ?? 'Error changing password');
+      }
+    } catch (exception) {
+      if (kDebugMode) rethrow;
+      dev.log('Error in changePassword ======> $exception');
     }
     return false;
   }

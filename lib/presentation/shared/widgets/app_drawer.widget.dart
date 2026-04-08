@@ -5,6 +5,7 @@ import '../../../helpers/app_state.dart';
 import '../../../helpers/public_url.dart';
 import '../../../services/toast.service.dart';
 import '../../auth/login.screen.dart';
+import '../../event/all_events.screen.dart';
 import '../../artist/artists.screen.dart';
 import '../app_web_view.screen.dart';
 
@@ -53,25 +54,35 @@ class AppDrawer extends StatelessWidget {
   /// Items shown for everyone (guest + logged-in).
   List<Widget> _baseMenuTiles(BuildContext context) {
     return [
-      ListTile(
-        leading: const Icon(Icons.home_outlined),
-        title: const Text('Home'),
+      _buildListTile(
+        icon: Icons.home_outlined,
+        title: 'Home',
         onTap: () {
           Navigator.pop(context);
           onTabSelected?.call(0);
         },
       ),
-      ListTile(
-        leading: const Icon(Icons.confirmation_number_outlined),
-        title: const Text('My Tickets'),
+      _buildListTile(
+        icon: Icons.event_outlined,
+        title: 'All Events',
+        onTap: () {
+          Navigator.pop(context);
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const AllEventsScreen()),
+          );
+        },
+      ),
+      _buildListTile(
+        icon: Icons.confirmation_number_outlined,
+        title: 'My Tickets',
         onTap: () {
           Navigator.pop(context);
           onTabSelected?.call(2);
         },
       ),
-      ListTile(
-        leading: const Icon(Icons.groups_outlined),
-        title: const Text('Artists'),
+      _buildListTile(
+        icon: Icons.groups_outlined,
+        title: 'Artists',
         onTap: () {
           Navigator.pop(context);
           Navigator.of(context).push(
@@ -79,23 +90,23 @@ class AppDrawer extends StatelessWidget {
           );
         },
       ),
-      ListTile(
-        leading: const Icon(Icons.mail_outline),
-        title: const Text('Contact Us'),
+      _buildListTile(
+        icon: Icons.mail_outline,
+        title: 'Contact Us',
         onTap: () => _openWebView(context, title: 'Contact Us', url: _contactUrl),
       ),
-      ListTile(
-        leading: const Icon(Icons.gavel_outlined),
-        title: const Text('Terms & Conditions'),
+      _buildListTile(
+        icon: Icons.gavel_outlined,
+        title: 'Terms & Conditions',
         onTap: () => _openSettingsLink(
           context,
           AppState.termsConditionLink,
           'Terms & Conditions',
         ),
       ),
-      ListTile(
-        leading: const Icon(Icons.privacy_tip_outlined),
-        title: const Text('Privacy Policy'),
+      _buildListTile(
+        icon: Icons.privacy_tip_outlined,
+        title: 'Privacy Policy',
         onTap: () => _openSettingsLink(
           context,
           AppState.privacyPolicyLink,
@@ -108,10 +119,11 @@ class AppDrawer extends StatelessWidget {
   /// Shown only when the user is **not** logged in.
   List<Widget> _guestMenuTiles(BuildContext context) {
     return [
-      const Divider(),
-      ListTile(
-        leading: const Icon(Icons.login, color: AppColors.primary),
-        title: const Text('Login'),
+      const Divider(height: 1),
+      _buildListTile(
+        icon: Icons.login,
+        title: 'Login',
+        color: AppColors.primary,
         onTap: () {
           Navigator.pop(context);
           Navigator.of(context).push<void>(
@@ -125,21 +137,40 @@ class AppDrawer extends StatelessWidget {
   /// Shown only when [AppState.loggedIn].
   List<Widget> _loggedInMenuTiles(BuildContext context) {
     return [
-      const Divider(),
-      ListTile(
-        leading: const Icon(Icons.person_outline),
-        title: const Text('My Profile'),
+      const Divider(height: 1),
+      _buildListTile(
+        icon: Icons.person_outline,
+        title: 'My Profile',
         onTap: () {
           Navigator.pop(context);
           onTabSelected?.call(3);
         },
       ),
-      ListTile(
-        leading: const Icon(Icons.logout, color: AppColors.red),
-        title: const Text('Logout', style: TextStyle(color: AppColors.red)),
+      _buildListTile(
+        icon: Icons.logout,
+        title: 'Logout',
+        color: AppColors.red,
         onTap: () => AppState.logOut(),
       ),
     ];
+  }
+
+  Widget _buildListTile({
+    required IconData icon,
+    required String title,
+    required VoidCallback onTap,
+    Color? color,
+  }) {
+    return ListTile(
+      dense: true,
+      visualDensity: const VisualDensity(vertical: -2),
+      leading: Icon(icon, color: color),
+      title: Text(
+        title,
+        style: TextStyle(color: color, fontSize: 14),
+      ),
+      onTap: onTap,
+    );
   }
 
   @override

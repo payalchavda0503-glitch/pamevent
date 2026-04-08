@@ -9,6 +9,7 @@ class ApiConfig {
   static Uri get home => Uri.parse('$_customerBaseUrl/home');
   static Uri get categories => Uri.parse('$_customerBaseUrl/categories');
   static Uri get profile => Uri.parse('$_customerBaseUrl/profile');
+  static Uri get editProfile => Uri.parse('$_customerBaseUrl/edit_profile');
   static Uri get customerEvents => Uri.parse('$_customerBaseUrl/events');
   static Uri get customerEventDetail => Uri.parse('$_customerBaseUrl/event_detail');
   static Uri get artists => Uri.parse('$_customerBaseUrl/artists');
@@ -18,13 +19,15 @@ class ApiConfig {
   }
 
   /// Auth
-  static Uri get login => Uri.parse('$_serverBaseUrl/login');
+  static Uri get login => Uri.parse('$_customerBaseUrl/login');
   static Uri get loginQr => Uri.parse('$_serverBaseUrl/login_with_qrcode');
   static Uri get updateGuestUser => Uri.parse('$_serverBaseUrl/update_guest_user');
-  static Uri get socialLogin => Uri.parse('$_serverBaseUrl/social-login');
-  static Uri get register => Uri.parse('$_serverBaseUrl/register');
-  static Uri get forgotPassword => Uri.parse('$_serverBaseUrl/forgot_password');
-  static Uri get resetPassword => Uri.parse('$_serverBaseUrl/reset_password');
+  static Uri get socialLogin => Uri.parse('$_customerBaseUrl/social-login');
+  static Uri get register => Uri.parse('$_customerBaseUrl/register');
+  static Uri get forgotPassword => Uri.parse('$_customerBaseUrl/forgot_password');
+  static Uri get resetPassword => Uri.parse('$_customerBaseUrl/reset_password');
+  static Uri get logout => Uri.parse('$_customerBaseUrl/logout');
+  static Uri get changePassword => Uri.parse('$_customerBaseUrl/change_password');
 
   /// Events
   static Uri get events => Uri.parse('$_serverBaseUrl/events');

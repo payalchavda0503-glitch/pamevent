@@ -33,7 +33,10 @@ class _MainLayoutState extends State<MainLayout> {
   @override
   Widget build(BuildContext context) {
     final List<Widget> _screens = [
-      HomeScreen(onMenuTap: () => _scaffoldKey.currentState?.openDrawer()),
+      HomeScreen(
+        onMenuTap: () => _scaffoldKey.currentState?.openDrawer(),
+        onSearchTap: () => _onItemTapped(1),
+      ),
       SearchResultsScreen(onMenuTap: () => _scaffoldKey.currentState?.openDrawer()),
       MyTicketsListScreen(onMenuTap: () => _scaffoldKey.currentState?.openDrawer()),
       ProfileScreen(onMenuTap: () => _scaffoldKey.currentState?.openDrawer()),

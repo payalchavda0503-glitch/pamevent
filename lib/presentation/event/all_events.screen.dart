@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../../api/api.client.dart';
 import '../../helpers/app_colors.dart';
 import '../../helpers/public_url.dart';
+import '../shared/widgets/custom_image.dart';
 import 'event_details.screen.dart';
 
 class AllEventsScreen extends StatefulWidget {
@@ -174,18 +174,12 @@ class _AllEventsScreenState extends State<AllEventsScreen> {
           children: [
             ClipRRect(
               borderRadius: BorderRadius.circular(12),
-              child: CachedNetworkImage(
-                imageUrl: imageUrl,
+              child: CustomImage(
+                imageUrl,
                 width: 120,
                 height: 120,
                 fit: BoxFit.cover,
-                placeholder: (context, url) => Container(
-                  width: 120,
-                  height: 120,
-                  color: AppColors.lightGrey,
-                  child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
-                ),
-                errorWidget: (context, url, error) => Container(
+                whenEmpty: Container(
                   width: 120,
                   height: 120,
                   color: AppColors.lightGrey,

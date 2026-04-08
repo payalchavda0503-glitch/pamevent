@@ -51,8 +51,8 @@ class _LoginScreenState extends State<LoginScreen> {
     _createAccount = TapGestureRecognizer();
     _createAccount.onTap = () => context.push(const RegisterScreen());
     if (kDebugMode) {
-      _username.text = 'Jeanpierrefinal';
-      _password.text = '12345678';
+      _username.text = 'chavda';
+      _password.text = '123456';
     }
     // if (kDebugMode) {
     //   _username.text = 'glinca21078';
@@ -82,12 +82,21 @@ class _LoginScreenState extends State<LoginScreen> {
     if (_formKey.currentState?.validate() != true) return;
     FocusManager.instance.primaryFocus?.unfocus();
     AppState.showLoader();
-    final profile = await ApiClient.login(
-      _username.text.trim(),
-      _password.text,
-    );
-    AppState.hideLoader();
-    _handleAfterLogin(profile);
+    try {
+      final response = await ApiClient.login(
+        username: _username.text.trim(),
+        password: _password.text,
+      );
+      AppState.hideLoader();
+      if (response != null && response['status'] == 100) {
+        final profile = Profile.fromJson(response['data']);
+        ToastService.show(response['message'] ?? 'Login successful!');
+        _handleAfterLogin(profile);
+      }
+    } catch (e) {
+      AppState.hideLoader();
+      debugPrint('Login error: $e');
+    }
   }
 
   Future<void> _loginwithQR()

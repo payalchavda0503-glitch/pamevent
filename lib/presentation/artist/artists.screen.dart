@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../../api/api.client.dart';
 import '../../helpers/app_colors.dart';
 import '../../helpers/public_url.dart';
+import '../shared/widgets/custom_image.dart';
 import '../search/artist_details.screen.dart';
 
 class ArtistsScreen extends StatefulWidget {
@@ -177,14 +177,10 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
             child: AspectRatio(
               aspectRatio: 1,
               child: ClipOval(
-                child: CachedNetworkImage(
-                  imageUrl: imageUrl,
+                child: CustomImage(
+                  imageUrl,
                   fit: BoxFit.cover,
-                  placeholder: (context, url) => Container(
-                    color: AppColors.lightGrey,
-                    child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
-                  ),
-                  errorWidget: (context, url, error) => Container(
+                  whenEmpty: Container(
                     color: AppColors.lightGrey,
                     child: const Icon(Icons.person, color: AppColors.grey, size: 40),
                   ),

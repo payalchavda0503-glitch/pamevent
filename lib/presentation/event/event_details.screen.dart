@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../../api/api.client.dart';
 import '../../helpers/app_colors.dart';
 import '../../helpers/public_url.dart';
 import '../shared/widgets/custom_button.widget.dart';
+import '../shared/widgets/custom_image.dart';
 import '../search/artist_details.screen.dart';
 
 class EventDetailsScreen extends StatefulWidget {
@@ -124,20 +124,15 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                       // Event Image
                       ClipRRect(
                         borderRadius: BorderRadius.circular(16),
-                        child: CachedNetworkImage(
-                          imageUrl: resolvePublicUrl(imageUrl) ?? imageUrl,
+                        child: CustomImage(
+                          resolvePublicUrl(imageUrl) ?? imageUrl,
                           width: double.infinity,
                           height: 200,
                           fit: BoxFit.cover,
-                          placeholder: (context, url) => Container(
+                          whenEmpty: Container(
                             height: 200,
                             color: AppColors.lightGrey,
-                            child: const Center(child: CircularProgressIndicator()),
-                          ),
-                          errorWidget: (context, url, error) => Container(
-                            height: 200,
-                            color: AppColors.lightGrey,
-                            child: const Icon(Icons.image_not_supported),
+                            child: const Icon(Icons.image_not_supported, size: 50),
                           ),
                         ),
                       ),
@@ -446,21 +441,27 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
       },
       child: Column(
         children: [
-          CachedNetworkImage(
-            imageUrl: imageUrl,
-            imageBuilder: (context, imageProvider) => CircleAvatar(
-              radius: 30,
-              backgroundImage: imageProvider,
+          Container(
+            width: 60,
+            height: 60,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: AppColors.lightGrey),
             ),
-            placeholder: (context, url) => const CircleAvatar(
-              radius: 30,
-              backgroundColor: AppColors.lightGrey,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-            errorWidget: (context, url, error) => const CircleAvatar(
-              radius: 30,
-              backgroundColor: AppColors.lightGrey,
-              child: Icon(Icons.person, color: AppColors.grey),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(30),
+              child: CustomImage(
+                imageUrl,
+                width: 60,
+                height: 60,
+                fit: BoxFit.cover,
+                whenEmpty: Container(
+                  width: 60,
+                  height: 60,
+                  color: AppColors.lightGrey,
+                  child: const Icon(Icons.person, color: AppColors.grey),
+                ),
+              ),
             ),
           ),
           const SizedBox(height: 8),

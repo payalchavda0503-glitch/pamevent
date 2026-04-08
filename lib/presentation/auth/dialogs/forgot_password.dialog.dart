@@ -64,17 +64,21 @@ class _ForgotPasswordDialogState extends State<ForgotPasswordDialog> {
           CustomButton(
             title: 'Reset password!',
             onTap: () async {
-              AppState.showLoader();
               if (_formKey.currentState?.validate() == true) {
                 FocusManager.instance.primaryFocus?.unfocus();
-                final res = await ApiClient.forgotPassword(_email.text.trim());
-                if (context.mounted && res != null) {
-                  context.replace(
-                    OtpScreen(code: res, email: _email.text.trim()),
+                AppState.showLoader();
+                final success = await ApiClient.forgotPassword(_email.text.trim());
+                AppState.hideLoader();
+                if (context.mounted && success) {
+                  Navigator.pop(context); // Close dialog
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => OtpScreen(email: _email.text.trim()),
+                    ),
                   );
                 }
               }
-              AppState.hideLoader();
             },
           ),
           CustomButton.outline(title: 'Cancel', onTap: context.pop),

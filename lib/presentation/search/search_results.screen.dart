@@ -1,16 +1,25 @@
 import 'dart:async';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../../api/api.client.dart';
 import '../../helpers/app_colors.dart';
 import '../../helpers/public_url.dart';
 import '../event/event_details.screen.dart';
+import '../shared/widgets/custom_image.dart';
+import '../shared/widgets/filter_bottom_sheet.widget.dart';
 import 'artist_details.screen.dart';
 
 class SearchResultsScreen extends StatefulWidget {
   final String initialQuery;
+  final Map<String, dynamic>? initialFilters;
   final VoidCallback? onMenuTap;
 
-  const SearchResultsScreen({super.key, this.initialQuery = '', this.onMenuTap});
+  const SearchResultsScreen({
+    super.key,
+    this.initialQuery = '',
+    this.initialFilters,
+    this.onMenuTap,
+  });
 
   @override
   State<SearchResultsScreen> createState() => _SearchResultsScreenState();
@@ -23,20 +32,27 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
   List<dynamic> _venues = [];
   bool _isLoading = false;
   Timer? _debounce;
+  Map<String, dynamic>? _activeFilters;
 
   @override
   void initState() {
     super.initState();
     _searchController = TextEditingController(text: widget.initialQuery);
-    if (widget.initialQuery.isNotEmpty) {
+    _activeFilters = widget.initialFilters;
+    
+    if (_activeFilters != null) {
+      _performFilter();
+    } else if (widget.initialQuery.isNotEmpty) {
       _performSearch(widget.initialQuery);
     }
   }
 
   void _onSearchChanged(String query) {
+    setState(() {}); // Update to show/hide clear icon
     if (_debounce?.isActive ?? false) _debounce!.cancel();
     _debounce = Timer(const Duration(milliseconds: 500), () {
       if (query.isNotEmpty) {
+        _activeFilters = null; // Clear filters when typing a new search
         _performSearch(query);
       } else {
         setState(() {
@@ -68,6 +84,58 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
     }
   }
 
+  Future<void> _performFilter() async {
+    if (_activeFilters == null) return;
+    
+    setState(() => _isLoading = true);
+    try {
+      final results = await ApiClient.getCustomerEvents(
+        category: _activeFilters!['category'],
+        eventType: _activeFilters!['event'],
+        searchInput: _searchController.text.isNotEmpty ? _searchController.text : null,
+        dates: _activeFilters!['dates'],
+        minPrice: _activeFilters!['min'],
+        maxPrice: _activeFilters!['max'],
+      );
+      
+      if (results != null) {
+        setState(() {
+          if (results['events'] != null && results['events']['data'] is List) {
+            _events = results['events']['data'];
+          } else if (results['data'] is List) {
+            _events = results['data'];
+          } else {
+            _events = [];
+          }
+          _artists = []; // Filter API usually only returns events
+          _venues = [];
+          _isLoading = false;
+        });
+      } else {
+        setState(() => _isLoading = false);
+      }
+    } catch (e) {
+      debugPrint('Error filtering: $e');
+      setState(() => _isLoading = false);
+    }
+  }
+
+  void _showFilterSheet() async {
+    final filters = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => FilterBottomSheet(initialFilters: _activeFilters),
+    );
+
+    if (filters != null) {
+      setState(() {
+        _activeFilters = filters;
+      });
+      _performFilter();
+    }
+  }
+
   @override
   void dispose() {
     _searchController.dispose();
@@ -91,41 +159,48 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
           style: TextStyle(color: AppColors.black, fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.filter_list, color: AppColors.black),
-            onPressed: () {
-              // Handle filter action
-            },
-          ),
-        ],
       ),
       body: SafeArea(
         child: Column(
           children: [
             // Search Bar Header
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+              padding: const EdgeInsets.only(left: 16.0, right: 16.0, bottom: 8.0),
               child: Row(
                 children: [
                   Expanded(
                     child: Container(
+                      height: 50, // Fixed height to prevent cutting
                       decoration: BoxDecoration(
-                        color: AppColors.scaffold,
+                        color: const Color(0xFFF5F5F5),
                         borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppColors.lightGrey),
                       ),
-                      child: TextField(
-                        controller: _searchController,
-                        autofocus: false,
-                        onChanged: _onSearchChanged,
-                        decoration: const InputDecoration(
-                          hintText: 'Find events, artist & venues',
-                          hintStyle: TextStyle(color: AppColors.grey, fontSize: 14),
-                          prefixIcon: Icon(Icons.search, color: AppColors.grey),
-                          border: InputBorder.none,
-                          enabledBorder: InputBorder.none,
-                          focusedBorder: InputBorder.none,
-                          contentPadding: EdgeInsets.symmetric(vertical: 14),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: TextField(
+                          controller: _searchController,
+                          autofocus: false,
+                          onChanged: _onSearchChanged,
+                          textAlignVertical: TextAlignVertical.center, // Center text vertically
+                          decoration: InputDecoration(
+                            hintText: 'Find events, artist & venues',
+                            hintStyle: const TextStyle(color: AppColors.grey, fontSize: 14),
+                            prefixIcon: const Icon(Icons.search, color: AppColors.grey),
+                            suffixIcon: _searchController.text.isNotEmpty
+                                ? IconButton(
+                                    icon: const Icon(Icons.close, color: AppColors.grey, size: 20),
+                                    onPressed: () {
+                                      _searchController.clear();
+                                      _onSearchChanged('');
+                                    },
+                                  )
+                                : null,
+                            border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 12), // Adjust horizontal padding
+                          ),
                         ),
                       ),
                     ),
@@ -175,12 +250,17 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
                                 padding: const EdgeInsets.only(bottom: 16),
                                 child: _buildEventItem(
                                   eventId: event['id'] ?? 0,
-                                  imageUrl: resolvePublicUrl(event['thumbnail'] ?? event['image'] ?? event['photo']) ?? 'https://picsum.photos/200/200',
-                                  title: event['title'] ?? 'Untitled',
-                                  location: event['venue_name'] ?? event['location'] ?? 'Online',
+                                  imageUrl: resolvePublicUrl(event['thumbnail'] ?? event['image'] ?? event['photo'] ?? event['event_thumbnail']) ?? 'https://picsum.photos/200/200',
+                                  title: event['title'] ?? event['event_name'] ?? 'Untitled',
+                                  location: event['venue_name'] ?? 
+                                           event['event_address'] ?? 
+                                           '${event['city'] ?? ''}, ${event['country'] ?? ''}'.trim().replaceAll(RegExp(r'^, |, $'), '') ?? 
+                                           event['location'] ?? 
+                                           event['venue'] ?? 
+                                           'Online',
                                   organizer: event['organizer_name'] ?? event['organizer']?['username'] ?? 'Unknown',
                                   date: '${event['start_date'] ?? ''} / ${event['start_time'] ?? ''}',
-                                  price: '\$${price is num ? price.toStringAsFixed(2) : price}',
+                                  price: formatPrice(price),
                                   status: event['status_label'],
                                   statusColor: event['status_color'] != null
                                       ? Color(int.parse(event['status_color'].replaceAll('#', '0xFF')))
@@ -252,7 +332,7 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
                                   padding: const EdgeInsets.only(right: 16),
                                   child: _buildVenueItem(
                                     name: venue['venue'] ?? venue['name'] ?? 'Venue',
-                                    imageUrl: resolvePublicUrl(venue['image'] ?? venue['photo'] ?? venue['thumbnail']) ?? 'https://picsum.photos/200/200',
+                                    imageUrl: resolvePublicUrl(venue['image'] ?? venue['photo'] ?? venue['thumbnail']),
                                     address: venue['address'] ?? '${venue['city'] ?? ''}, ${venue['country'] ?? ''}',
                                   ),
                                 );
@@ -285,7 +365,7 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
 
   Widget _buildVenueItem({
     required String name,
-    required String imageUrl,
+    required String? imageUrl,
     required String address,
   }) {
     return Container(
@@ -307,11 +387,17 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
         children: [
           ClipRRect(
             borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-            child: Image.network(
+            child: CustomImage(
               imageUrl,
               height: 100,
-              width: double.infinity,
               fit: BoxFit.cover,
+              whenEmpty: Container(
+                height: 100,
+                color: AppColors.lightGrey.withOpacity(0.3),
+                child: const Center(
+                  child: Icon(Icons.business, size: 40, color: AppColors.grey),
+                ),
+              ),
             ),
           ),
           Padding(
@@ -384,10 +470,10 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
         children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(12),
-            child: Image.network(
+            child: CustomImage(
               imageUrl,
-              width: 100,
-              height: 100,
+              width: 120,
+              height: 120,
               fit: BoxFit.cover,
             ),
           ),
@@ -396,33 +482,24 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        title,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    const Icon(Icons.bookmark_border, size: 20, color: AppColors.grey),
-                  ],
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 4),
                 Row(
                   children: [
-                    const Icon(Icons.location_on, size: 14, color: AppColors.darkGrey),
+                    const Icon(Icons.location_on, size: 13, color: AppColors.darkGrey),
                     const SizedBox(width: 4),
                     Expanded(
                       child: Text(
                         location,
-                        style: const TextStyle(fontSize: 13, color: AppColors.darkGrey),
+                        style: const TextStyle(fontSize: 12, color: AppColors.darkGrey),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -432,42 +509,46 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
                 const SizedBox(height: 2),
                 Row(
                   children: [
-                    const Icon(Icons.person, size: 14, color: AppColors.darkGrey),
+                    const Icon(Icons.person, size: 13, color: AppColors.darkGrey),
                     const SizedBox(width: 4),
                     Expanded(
                       child: Text(
                         'By $organizer',
-                        style: const TextStyle(fontSize: 12, color: AppColors.grey),
+                        style: const TextStyle(fontSize: 11, color: AppColors.grey),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 2),
                 Text(
                   date,
-                  style: const TextStyle(fontSize: 13, color: AppColors.darkGrey),
+                  style: const TextStyle(fontSize: 12, color: AppColors.darkGrey),
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  price,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                  ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                       price,
+                       style: const TextStyle(
+                         fontWeight: FontWeight.bold,
+                         fontSize: 14,
+                         color: AppColors.black,
+                       ),
+                     ),
+                    if (status != null)
+                      Text(
+                        status,
+                        style: TextStyle(
+                          color: statusColor ?? AppColors.primary,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                  ],
                 ),
-                if (status != null) ...[
-                  const SizedBox(height: 2),
-                  Text(
-                    status,
-                    style: TextStyle(
-                      color: statusColor ?? AppColors.primary,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ]
               ],
             ),
           ),
@@ -498,8 +579,13 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: AppColors.lightGrey),
-              image: DecorationImage(
-                image: NetworkImage(imageUrl),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: CustomImage(
+                imageUrl,
+                width: 80,
+                height: 80,
                 fit: BoxFit.cover,
               ),
             ),

@@ -13,24 +13,29 @@ class LoaderWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     return ValueListenableBuilder<bool>(
       valueListenable: AppState.isLoading,
-      builder: (_, v, c) => v ? AbsorbPointer(child: c!) : const SizedBox(),
-      child: Center(
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 2, sigmaY: 2),
-          child: FittedBox(
-            child: Container(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                color: AppColors.black.withValues(alpha: 0.2),
-              ),
-              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 22),
-              child: const SpinKitThreeBounce(
-                color: AppColors.primary,
-                size: 20,
+      builder: (_, v, c) => v ? c! : const SizedBox(),
+      child: Stack(
+        children: [
+          const ModalBarrier(dismissible: false, color: Colors.transparent),
+          Center(
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 2, sigmaY: 2),
+              child: FittedBox(
+                child: Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    color: AppColors.black.withValues(alpha: 0.2),
+                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 22),
+                  child: const SpinKitThreeBounce(
+                    color: AppColors.primary,
+                    size: 20,
+                  ),
+                ),
               ),
             ),
           ),
-        ),
+        ],
       ),
     );
   }

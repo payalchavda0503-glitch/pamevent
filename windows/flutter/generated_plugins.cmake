@@ -5,6 +5,7 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   audioplayers_windows
   connectivity_plus
+  file_selector_windows
   flutter_pos_printer_platform_image_3
   flutter_secure_storage_windows
   permission_handler_windows

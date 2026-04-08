@@ -8,14 +8,14 @@ import 'conditional_parent.widget.dart';
 class CustomImage extends StatelessWidget {
   const CustomImage(
     this.path, {
+    this.width,
+    this.height,
     this.emptyOnError = false,
     this.whenEmpty,
     this.centerLoader = true,
     this.fit = BoxFit.cover,
     super.key,
-  }) : isSvg = false,
-       width = null,
-       height = null;
+  }) : isSvg = false;
 
   const CustomImage.svg(
     this.path, {
@@ -66,6 +66,8 @@ class CustomImage extends StatelessWidget {
     return CachedNetworkImage(
       imageUrl: path!,
       fit: fit,
+      width: width,
+      height: height,
       httpHeaders: const {'Connection': 'Keep-Alive'},
       errorWidget: (_, _, _) => _errorWidget,
       progressIndicatorBuilder: (_, _, lp) {
