@@ -573,8 +573,15 @@ class _ArtistDetailsScreenState extends State<ArtistDetailsScreen> with SingleTi
   Widget _buildVideoCard(dynamic video, String artistName) {
     final thumbnailUrl = resolvePublicUrl(video['thumbnail']) ?? 'https://picsum.photos/400/225';
     final title = video['title'] ?? 'Video';
+    final videoUrl = video['url'] ?? '';
 
-    return Stack(
+    return GestureDetector(
+      onTap: () {
+        if (videoUrl.isNotEmpty) {
+           _openSocialLink(context, title, videoUrl);
+        }
+      },
+      child: Stack(
       alignment: Alignment.center,
       children: [
         ClipRRect(
@@ -649,12 +656,14 @@ class _ArtistDetailsScreenState extends State<ArtistDetailsScreen> with SingleTi
           ),
         ),
       ],
+    ),
     );
   }
 
   Widget _buildTrackItem(int index, dynamic track, String artistName, int totalTracks) {
     final imageUrl = resolvePublicUrl(track['image'] ?? track['photo'] ?? track['thumbnail']) ?? 'https://picsum.photos/50/50';
     final title = track['name'] ?? track['title'] ?? 'Track';
+    final trackUrl = track['url'] ?? track['preview_url'] ?? track['link'] ?? '';
     
     // Format duration from ms if available
     String duration = '00:00';
@@ -667,7 +676,13 @@ class _ArtistDetailsScreenState extends State<ArtistDetailsScreen> with SingleTi
       duration = track['duration'] ?? track['time'] ?? '00:00';
     }
 
-    return Column(
+    return GestureDetector(
+      onTap: () {
+        if (trackUrl.isNotEmpty) {
+           _openSocialLink(context, title, trackUrl);
+        }
+      },
+      child: Column(
       children: [
         Padding(
           padding: const EdgeInsets.all(12.0),
@@ -718,6 +733,7 @@ class _ArtistDetailsScreenState extends State<ArtistDetailsScreen> with SingleTi
         if (index < totalTracks - 1)
           const Divider(height: 1, color: AppColors.lightGrey, indent: 40),
       ],
+    ),
     );
   }
 

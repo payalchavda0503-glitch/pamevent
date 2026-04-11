@@ -5,6 +5,7 @@ import '../../helpers/public_url.dart';
 import '../shared/widgets/custom_button.widget.dart';
 import '../shared/widgets/custom_image.dart';
 import '../search/artist_details.screen.dart';
+import '../tickets/select_tickets.screen.dart';
 
 class EventDetailsScreen extends StatefulWidget {
   final int eventId;
@@ -378,7 +379,12 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                     child: CustomButton(
                       title: 'Get Tickets',
                       onTap: () {
-                        // Handle ticket purchase
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => SelectTicketsScreen(eventId: widget.eventId),
+                          ),
+                        );
                       },
                     ),
                   ),

@@ -1,28 +1,84 @@
 import 'package:flutter/material.dart';
+import '../../api/api.client.dart';
 import '../../helpers/app_colors.dart';
 import '../shared/widgets/custom_button.widget.dart';
+import 'checkout.screen.dart';
 
 class SelectTicketsScreen extends StatefulWidget {
-  const SelectTicketsScreen({super.key});
+  final int eventId;
+
+  const SelectTicketsScreen({super.key, required this.eventId});
 
   @override
   State<SelectTicketsScreen> createState() => _SelectTicketsScreenState();
 }
 
 class _SelectTicketsScreenState extends State<SelectTicketsScreen> {
-  int earlyBirdCount = 1;
-  int generalAdmissionCount = 1;
-  
-  final double earlyBirdPrice = 45.50;
-  final double generalAdmissionPrice = 50.00;
-  final double serviceFee = 6.00;
-  final double processingFee = 2.80;
+  bool _isLoading = true;
+  List<dynamic> _tickets = [];
+  Map<int, int> _ticketCounts = {};
+  double _serviceFee = 0.0;
+  double _processingFee = 0.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchTickets();
+  }
+
+  Future<void> _fetchTickets() async {
+    setState(() => _isLoading = true);
+    final data = await ApiClient.getCustomerEventTicketDetails(widget.eventId);
+    if (mounted) {
+      setState(() {
+        if (data is List) {
+          _tickets = data;
+        } else if (data is Map) {
+          if (data['tickets'] is List) {
+            _tickets = data['tickets'];
+          } else if (data['ticket_types'] is List) {
+            _tickets = data['ticket_types'];
+          } else if (data['ticket_detail'] is List) {
+            _tickets = data['ticket_detail'];
+          } else {
+             // Let's assume the root data might be a single ticket or nested inside data
+             _tickets = [data]; 
+          }
+          _serviceFee = double.tryParse((data['service_fee'] ?? 0.0).toString()) ?? 0.0;
+          _processingFee = double.tryParse((data['processing_fee'] ?? 0.0).toString()) ?? 0.0;
+        }
+
+        for (int i = 0; i < _tickets.length; i++) {
+          _ticketCounts[i] = 0;
+        }
+        _isLoading = false;
+      });
+    }
+  }
+
+  double _calculateTicketsTotal() {
+    double total = 0;
+    for (int i = 0; i < _tickets.length; i++) {
+      int count = _ticketCounts[i] ?? 0;
+      double price = double.tryParse(_tickets[i]['price']?.toString() ?? '0') ?? 0;
+      total += count * price;
+    }
+    return total;
+  }
+
+  int _calculateTotalTickets() {
+    int count = 0;
+    for (int i = 0; i < _tickets.length; i++) {
+      count += _ticketCounts[i] ?? 0;
+    }
+    return count;
+  }
 
   @override
   Widget build(BuildContext context) {
-    double total = (earlyBirdCount * earlyBirdPrice) + 
-                  (generalAdmissionCount * generalAdmissionPrice) + 
-                  serviceFee + processingFee;
+    double ticketsTotal = _calculateTicketsTotal();
+    int totalTickets = _calculateTotalTickets();
+    double total = ticketsTotal;
 
     return Scaffold(
       backgroundColor: AppColors.white,
@@ -68,27 +124,36 @@ class _SelectTicketsScreenState extends State<SelectTicketsScreen> {
 
             // Ticket Types
             Expanded(
-              child: ListView(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                children: [
-                  _buildTicketTypeCard(
-                    'Early Bird',
-                    '\$${earlyBirdPrice.toStringAsFixed(2)}',
-                    earlyBirdCount,
-                    (val) => setState(() => earlyBirdCount = val),
-                  ),
-                  const SizedBox(height: 16),
-                  _buildTicketTypeCard(
-                    'General Admission Phase 1',
-                    '\$${generalAdmissionPrice.toStringAsFixed(2)}',
-                    generalAdmissionCount,
-                    (val) => setState(() => generalAdmissionCount = val),
-                  ),
-                ],
-              ),
+              child: _isLoading 
+                ? const Center(child: CircularProgressIndicator())
+                : _tickets.isEmpty
+                  ? const Center(child: Text("No tickets available"))
+                  : ListView.builder(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      itemCount: _tickets.length,
+                      itemBuilder: (context, index) {
+                        final ticket = _tickets[index];
+                        final title = ticket['title'] ?? ticket['name'] ?? ticket['ticket_type'] ?? 'Ticket';
+                        final priceStr = ticket['price']?.toString() ?? '0';
+                        final price = double.tryParse(priceStr) ?? 0;
+                        final labels = ticket['ticket_labels'] is List ? ticket['ticket_labels'] as List<dynamic> : [];
+                        
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 16),
+                          child: _buildTicketTypeCard(
+                            title,
+                            '\$${price.toStringAsFixed(2)}',
+                            labels,
+                            _ticketCounts[index] ?? 0,
+                            (val) => setState(() => _ticketCounts[index] = val),
+                          ),
+                        );
+                      },
+                    ),
             ),
 
             // Summary Section
+            if (!_isLoading)
             Container(
               padding: const EdgeInsets.all(20),
               decoration: const BoxDecoration(
@@ -99,7 +164,7 @@ class _SelectTicketsScreenState extends State<SelectTicketsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '${earlyBirdCount + generalAdmissionCount} tickets selected',
+                    '$totalTickets tickets selected',
                     style: const TextStyle(fontSize: 14, color: AppColors.grey),
                   ),
                   const SizedBox(height: 8),
@@ -116,34 +181,6 @@ class _SelectTicketsScreenState extends State<SelectTicketsScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 4),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Service fee',
-                        style: TextStyle(fontSize: 14, color: AppColors.grey),
-                      ),
-                      Text(
-                        '\$${serviceFee.toStringAsFixed(2)}',
-                        style: const TextStyle(fontSize: 14, color: AppColors.grey),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        'Processing fee',
-                        style: TextStyle(fontSize: 14, color: AppColors.grey),
-                      ),
-                      Text(
-                        '\$${processingFee.toStringAsFixed(2)}',
-                        style: const TextStyle(fontSize: 14, color: AppColors.grey),
-                      ),
-                    ],
-                  ),
                 ],
               ),
             ),
@@ -154,7 +191,33 @@ class _SelectTicketsScreenState extends State<SelectTicketsScreen> {
               child: CustomButton(
                 title: 'Go to payment',
                 onTap: () {
-                  // Handle payment navigation
+                  List<Map<String, dynamic>> selected = [];
+                  for (int i = 0; i < _tickets.length; i++) {
+                    int count = _ticketCounts[i] ?? 0;
+                    if (count > 0) {
+                      selected.add({
+                        'ticket': _tickets[i],
+                        'count': count,
+                      });
+                    }
+                  }
+                  
+                  if (selected.isNotEmpty) {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => CheckoutScreen(
+                          eventId: widget.eventId,
+                          selectedTickets: selected,
+                          totalAmount: total,
+                          serviceFee: _serviceFee,
+                          processingFee: _processingFee,
+                        ),
+                      ),
+                    );
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select at least one ticket')));
+                  }
                 },
               ),
             ),
@@ -164,7 +227,7 @@ class _SelectTicketsScreenState extends State<SelectTicketsScreen> {
     );
   }
 
-  Widget _buildTicketTypeCard(String title, String price, int count, Function(int) onCountChanged) {
+  Widget _buildTicketTypeCard(String title, String price, List<dynamic> labels, int count, Function(int) onCountChanged) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -193,6 +256,32 @@ class _SelectTicketsScreenState extends State<SelectTicketsScreen> {
                 price,
                 style: const TextStyle(fontSize: 12, color: AppColors.grey),
               ),
+              if (labels.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: labels.map((labelObj) {
+                    final labelText = labelObj['label']?.toString() ?? '';
+                    final colorCode = labelObj['color_code']?.toString() ?? '';
+                    final color = _parseColor(colorCode);
+                    if (labelText.isEmpty) return const SizedBox.shrink();
+                    
+                    return Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: color.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: color.withOpacity(0.5), width: 0.5),
+                      ),
+                      child: Text(
+                        labelText,
+                        style: TextStyle(fontSize: 10, color: color, fontWeight: FontWeight.bold),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ],
             ],
           ),
           Row(
@@ -225,5 +314,20 @@ class _SelectTicketsScreenState extends State<SelectTicketsScreen> {
         child: Icon(icon, size: 20, color: AppColors.black),
       ),
     );
+  }
+
+  Color _parseColor(String? colorCode) {
+    if (colorCode == null || colorCode.isEmpty) return AppColors.primary;
+    try {
+      final hexCode = colorCode.replaceAll('#', '');
+      if (hexCode.length == 6) {
+        return Color(int.parse('FF$hexCode', radix: 16));
+      } else if (hexCode.length == 8) {
+        return Color(int.parse(hexCode, radix: 16));
+      }
+    } catch (e) {
+      return AppColors.primary;
+    }
+    return AppColors.primary;
   }
 }

@@ -3,6 +3,7 @@ import '../../api/api.client.dart';
 import '../../helpers/app_colors.dart';
 import '../../helpers/public_url.dart';
 import '../shared/widgets/custom_image.dart';
+import '../shared/widgets/filter_bottom_sheet.widget.dart';
 import 'event_details.screen.dart';
 
 class AllEventsScreen extends StatefulWidget {
@@ -18,6 +19,7 @@ class _AllEventsScreenState extends State<AllEventsScreen> {
   bool _isLoading = true;
   int _currentPage = 1;
   bool _hasMore = true;
+  Map<String, dynamic>? _activeFilters;
 
   @override
   void initState() {
@@ -37,7 +39,14 @@ class _AllEventsScreenState extends State<AllEventsScreen> {
     setState(() => _isLoading = true);
 
     try {
-      final data = await ApiClient.getCustomerEvents(page: _currentPage);
+      final data = await ApiClient.getCustomerEvents(
+        page: _currentPage,
+        category: _activeFilters?['category'],
+        eventType: _activeFilters?['event'],
+        dates: _activeFilters?['dates'],
+        minPrice: _activeFilters?['min'],
+        maxPrice: _activeFilters?['max'],
+      );
       if (data != null && data['events'] != null) {
         final newEvents = data['events']['data'] as List;
         setState(() {
@@ -55,6 +64,27 @@ class _AllEventsScreenState extends State<AllEventsScreen> {
     } catch (e) {
       debugPrint('Error fetching all events: $e');
       setState(() => _isLoading = false);
+    }
+  }
+
+  void _showFilterSheet() async {
+    final filters = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => FilterBottomSheet(initialFilters: _activeFilters),
+    );
+
+    if (filters != null) {
+      if (mounted) {
+        setState(() {
+          _activeFilters = filters.isEmpty ? null : filters;
+          _events = [];
+          _currentPage = 1;
+          _hasMore = true;
+        });
+        _fetchEvents();
+      }
     }
   }
 
@@ -80,6 +110,30 @@ class _AllEventsScreenState extends State<AllEventsScreen> {
           style: TextStyle(color: AppColors.black, fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
+        actions: [
+          IconButton(
+            icon: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                const Icon(Icons.filter_list, color: AppColors.black),
+                if (_activeFilters != null && _activeFilters!.isNotEmpty)
+                  Positioned(
+                    top: -2,
+                    right: -2,
+                    child: Container(
+                      width: 10,
+                      height: 10,
+                      decoration: const BoxDecoration(
+                        color: AppColors.primary,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            onPressed: _showFilterSheet,
+          ),
+        ],
       ),
       body: SafeArea(
         child: _events.isEmpty && _isLoading

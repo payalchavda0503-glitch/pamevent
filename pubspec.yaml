@@ -63,6 +63,7 @@ dependencies:
   connectivity_plus:
   flutter_html: ^3.0.0-beta.2
   image_picker: ^1.2.1
+  flutter_stripe: ^12.5.0
 
 dev_dependencies:
   flutter_test:

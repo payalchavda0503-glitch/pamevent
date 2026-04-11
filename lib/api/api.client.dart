@@ -212,6 +212,25 @@ class ApiClient {
     return null;
   }
 
+  static Future<dynamic> getCustomerEventTicketDetails(int eventId) async {
+    try {
+      final response = await _dio.postUri(
+        ApiConfig.customerEventTicketDetails,
+        data: FormData.fromMap({'event_id': eventId}),
+      );
+      print('Event Ticket Details API Response: ${response.data}');
+      if (response.data['status'] == 100) {
+        return response.data['data'];
+      } else if (response.data['status'] == 101) {
+        handleToastMessage(response.data['message']);
+      }
+    } catch (exception) {
+      if (kDebugMode) rethrow;
+      dev.log('Error in getCustomerEventTicketDetails ======> $exception');
+    }
+    return null;
+  }
+
   static Future<List<dynamic>?> getArtists(String artistIds) async {
     try {
       final response = await _dio.getUri(
@@ -731,6 +750,106 @@ class ApiClient {
     } catch (exception) {
       if (kDebugMode) rethrow;
       dev.log('Error in syncTickets ======> $exception');
+    }
+    return false;
+  }
+
+  static Future<Map<String, dynamic>?> customerAddToCart(int eventId) async {
+    try {
+      final response = await _dio.postUri(
+        ApiConfig.addToCart,
+        data: {'event_id': eventId},
+      );
+      if (response.data['status'] == 100) return response.data;
+      handleToastMessage(response.data['message']);
+    } catch (e) {
+      if (kDebugMode) rethrow;
+      dev.log('Error in customerAddToCart => $e');
+    }
+    return null;
+  }
+
+  static Future<Map<String, dynamic>?> customerApplyCoupon(Map<String, dynamic> form) async {
+    try {
+      final response = await _dio.postUri(
+        ApiConfig.applyCoupon,
+        data: FormData.fromMap(form),
+      );
+      if (response.data['status'] == 100) return response.data;
+      handleToastMessage(response.data['message']);
+    } catch (e) {
+      if (kDebugMode) rethrow;
+      dev.log('Error in customerApplyCoupon => $e');
+    }
+    return null;
+  }
+
+  static Future<Map<String, dynamic>?> customerApplyReferral(Map<String, dynamic> form) async {
+    try {
+      final response = await _dio.postUri(
+        ApiConfig.applyReferral,
+        data: FormData.fromMap(form),
+      );
+      if (response.data['status'] == 100) return response.data;
+      handleToastMessage(response.data['message']);
+    } catch (e) {
+      if (kDebugMode) rethrow;
+      dev.log('Error in customerApplyReferral => $e');
+    }
+    return null;
+  }
+
+  static Future<Map<String, dynamic>?> customerMyTickets() async {
+    try {
+      final response = await _dio.getUri(ApiConfig.customerMyTickets);
+      if (response.data['status'] == 100) return response.data;
+      handleToastMessage(response.data['message']);
+    } catch (e) {
+      if (kDebugMode) rethrow;
+      dev.log('Error in customerMyTickets => $e');
+    }
+    return null;
+  }
+
+  static Future<Map<String, dynamic>?> customerGetPaymentGateways() async {
+    try {
+      final response = await _dio.getUri(ApiConfig.paymentGateway);
+      if (response.data['status'] == 100) return response.data;
+      handleToastMessage(response.data['message']);
+    } catch (e) {
+      if (kDebugMode) rethrow;
+      dev.log('Error in getPaymentGateways => $e');
+    }
+    return null;
+  }
+
+  static Future<Map<String, dynamic>?> customerCheckout(Map<String, dynamic> body) async {
+    try {
+      final response = await _dio.postUri(
+        ApiConfig.checkout,
+        data: FormData.fromMap(body),
+      );
+      if (response.data['status'] == 100) return response.data;
+      handleToastMessage(response.data['message']);
+    } catch (e) {
+      if (kDebugMode) rethrow;
+      dev.log('Error in customerCheckout => $e');
+    }
+    return null;
+  }
+
+  static Future<bool> customerBookingComplete(Map<String, dynamic> body) async {
+    try {
+      final response = await _dio.postUri(
+        ApiConfig.bookingComplete,
+        options: Options(headers: {cacheResponse: false}),
+        data: FormData.fromMap(body),
+      );
+      if (response.data['status'] == 100) return true;
+      handleToastMessage(response.data['message']);
+    } catch (e) {
+      if (kDebugMode) rethrow;
+      dev.log('Error in bookingComplete => $e');
     }
     return false;
   }
