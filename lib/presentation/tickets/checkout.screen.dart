@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import '../../api/api.client.dart';
 import '../../helpers/app_colors.dart';
+import '../../helpers/app_state.dart';
+import '../../helpers/extensions/context.extension.dart';
+import '../auth/login.screen.dart';
+import '../main_layout.dart';
 import '../shared/widgets/custom_button.widget.dart';
 import '../shared/widgets/custom_image.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -87,6 +91,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   
   double _couponDiscount = 0.0;
   double _referralDiscount = 0.0;
+  
+  bool _isLoggedIn = false;
 
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
@@ -104,6 +110,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   @override
   void initState() {
     super.initState();
+    _isLoggedIn = AppState.loggedIn;
     _fetchEventDetail();
     _initCheckoutFlow();
   }
@@ -126,6 +133,18 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   }
 
   Future<void> _initCheckoutFlow() async {
+    if (_isLoggedIn) {
+       final profile = await ApiClient.fetchProfile();
+       if (profile != null && mounted) {
+          setState(() {
+            _nameController.text = profile['name'] ?? profile['username'] ?? '';
+            _emailController.text = profile['email'] ?? '';
+            _reEmailController.text = profile['email'] ?? '';
+            _phoneController.text = profile['phone'] ?? '';
+          });
+       }
+    }
+    
     await ApiClient.customerAddToCart(widget.eventId);
     
     // Fetch gateways to extract the Stripe Publishable Key and the REAL IDs
@@ -305,7 +324,15 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   );
                   
                   await Stripe.instance.presentPaymentSheet();
-                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Payment Successful!')));
+                  if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Payment Successful!')));
+                      // Redirect to Home Page
+                      Navigator.pushAndRemoveUntil(
+                        context, 
+                        MaterialPageRoute(builder: (_) => const MainLayout(initialIndex: 0)), 
+                        (route) => false
+                      );
+                  }
                } on StripeException catch (e) {
                   if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Payment failed: ${e.error.localizedMessage}')));
                } catch (e) {
@@ -315,14 +342,40 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                // Fallback: Webview Modal
                if (mounted) _showStripeModal(targetUrl.toString());
             } else {
-               if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Order Placed Successfully! (No Client Secret or Web URL returned)')));
+               if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Order Placed Successfully! (No Client Secret or Web URL returned)')));
+                  // Redirect to Home Page
+                  Navigator.pushAndRemoveUntil(
+                    context, 
+                    MaterialPageRoute(builder: (_) => const MainLayout(initialIndex: 0)), 
+                    (route) => false
+                  );
+               }
             }
         } else {
            // Other Gateway (Moncash)
            if (targetUrl != null && targetUrl.toString().startsWith('http')) {
-              if (mounted) Navigator.push(context, MaterialPageRoute(builder: (_) => PaymentWebviewScreen(url: targetUrl.toString())));
+              if (mounted) {
+                  await Navigator.push(context, MaterialPageRoute(builder: (_) => PaymentWebviewScreen(url: targetUrl.toString())));
+                  // After returning from Webview, we assume success or user completed the flow
+                  if (mounted) {
+                      Navigator.pushAndRemoveUntil(
+                        context, 
+                        MaterialPageRoute(builder: (_) => const MainLayout(initialIndex: 0)), 
+                        (route) => false
+                      );
+                  }
+              }
            } else {
-              if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Order Placed Successfully!')));
+              if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Order Placed Successfully!')));
+                  // Redirect to Home Page
+                  Navigator.pushAndRemoveUntil(
+                    context, 
+                    MaterialPageRoute(builder: (_) => const MainLayout(initialIndex: 0)), 
+                    (route) => false
+                  );
+              }
            }
         }
      }
@@ -434,49 +487,68 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         const SizedBox(height: 32),
         const Text('Attendee Details', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
-        Row(
-          children: const [
-            Text('Log in', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold)),
-            Text(' for a faster experience.', style: TextStyle(color: Colors.grey)),
-          ],
-        ),
-        const SizedBox(height: 24),
-        LayoutBuilder(
-          builder: (context, constraints) {
-            if (constraints.maxWidth > 400) {
+        if (!_isLoggedIn) ...[
+          GestureDetector(
+            onTap: () async {
+              await Navigator.push(context, MaterialPageRoute(builder: (_) => const LoginScreen()));
+              if (AppState.loggedIn) {
+                 setState(() {
+                   _isLoggedIn = true;
+                 });
+                 _initCheckoutFlow();
+              }
+            },
+            child: Row(
+              children: const [
+                Text('Log in', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold)),
+                Text(' for a faster experience.', style: TextStyle(color: Colors.grey)),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              if (constraints.maxWidth > 400) {
+                return Column(
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(child: _buildTextField('Full Name *', 'Enter Your Full Name', _nameController)),
+                        const SizedBox(width: 16),
+                        Expanded(child: _buildTextField('Phone *', '+91 Phone Number', _phoneController)),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(child: _buildTextField('Email *', 'Enter Your Email', _emailController)),
+                        const SizedBox(width: 16),
+                        Expanded(child: _buildTextField('Re-Enter Email *', 'Enter Re Enter Email', _reEmailController)),
+                      ],
+                    ),
+                  ],
+                );
+              }
               return Column(
                 children: [
-                  Row(
-                    children: [
-                      Expanded(child: _buildTextField('Full Name *', 'Enter Your Full Name', _nameController)),
-                      const SizedBox(width: 16),
-                      Expanded(child: _buildTextField('Phone *', '+91 Phone Number', _phoneController)),
-                    ],
-                  ),
+                  _buildTextField('Full Name *', 'Enter Your Full Name', _nameController),
                   const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(child: _buildTextField('Email *', 'Enter Your Email', _emailController)),
-                      const SizedBox(width: 16),
-                      Expanded(child: _buildTextField('Re-Enter Email *', 'Enter Re Enter Email', _reEmailController)),
-                    ],
-                  ),
+                  _buildTextField('Phone *', '+91 Phone Number', _phoneController),
+                  const SizedBox(height: 16),
+                  _buildTextField('Email *', 'Enter Your Email', _emailController),
+                  const SizedBox(height: 16),
+                  _buildTextField('Re-Enter Email *', 'Enter Re Enter Email', _reEmailController),
                 ],
               );
             }
-            return Column(
-              children: [
-                _buildTextField('Full Name *', 'Enter Your Full Name', _nameController),
-                const SizedBox(height: 16),
-                _buildTextField('Phone *', '+91 Phone Number', _phoneController),
-                const SizedBox(height: 16),
-                _buildTextField('Email *', 'Enter Your Email', _emailController),
-                const SizedBox(height: 16),
-                _buildTextField('Re-Enter Email *', 'Enter Re Enter Email', _reEmailController),
-              ],
-            );
-          }
-        ),
+          ),
+        ] else ...[
+           const SizedBox(height: 8),
+           Text(
+             'Welcome back, ${_nameController.text}! Your details are pre-filled.',
+             style: const TextStyle(color: Colors.grey, fontSize: 14),
+           ),
+        ],
         
         const SizedBox(height: 24),
         Container(

@@ -6,6 +6,8 @@ import '../../helpers/app_state.dart';
 import '../../helpers/extensions/context.extension.dart';
 import '../auth/login.screen.dart';
 import '../shared/widgets/custom_button.widget.dart';
+import '../shared/widgets/custom_image.dart';
+import '../../helpers/public_url.dart';
 
 class MyTicketsListScreen extends StatefulWidget {
   final VoidCallback? onMenuTap;
@@ -24,6 +26,8 @@ class _MyTicketsListScreenState extends State<MyTicketsListScreen> {
   @override
   void initState() {
     super.initState();
+    print('MyTicketsListScreen initState - LoggedIn: ${AppState.loggedIn}');
+    AppState.authRevision.addListener(_onAuthChanged);
     if (AppState.loggedIn) {
       _fetchMyTickets();
     } else {
@@ -31,36 +35,64 @@ class _MyTicketsListScreenState extends State<MyTicketsListScreen> {
     }
   }
 
+  void _onAuthChanged() {
+    if (AppState.loggedIn && _upcomingTickets.isEmpty && _pastTickets.isEmpty && !_isLoading) {
+      print('Auth changed, triggering re-fetch...');
+      setState(() => _isLoading = true);
+      _fetchMyTickets();
+    }
+  }
+
+  @override
+  void dispose() {
+    AppState.authRevision.removeListener(_onAuthChanged);
+    super.dispose();
+  }
+
   Future<void> _fetchMyTickets() async {
-    final response = await ApiClient.customerMyTickets();
+    print('Starting _fetchMyTickets API calls (Recent & Past)...');
+    
+    // Call both APIs in parallel
+    final results = await Future.wait([
+      ApiClient.customerRecentTickets(page: 1),
+      ApiClient.customerPastTickets(page: 1),
+    ]);
+
+    final recentResponse = results[0];
+    final pastResponse = results[1];
+
+    print('Recent Response: $recentResponse');
+    print('Past Response: $pastResponse');
+
     if (mounted) {
       setState(() {
         _isLoading = false;
-        if (response != null && response['data'] != null) {
-          final items = (response['data'] is List) 
-                 ? response['data'] as List
-                 : (response['data']['data'] is List ? response['data']['data'] as List : []);
-          
-          DateTime now = DateTime.now();
-          _upcomingTickets.clear();
-          _pastTickets.clear();
-          for (var item in items) {
-             final event = item['event'] ?? {};
-             final dateStr = event['start_date'] ?? item['start_date'] ?? '';
-             bool isPast = false;
-             if (dateStr.isNotEmpty) {
-                try {
-                   final d = DateTime.parse(dateStr);
-                   if (d.isBefore(now)) isPast = true;
-                } catch (_) {}
-             }
-             if (isPast) {
-               _pastTickets.add(item);
-             } else {
-               _upcomingTickets.add(item);
-             }
+        
+        _upcomingTickets.clear();
+        _pastTickets.clear();
+
+        // Parse Recent Tickets
+        if (recentResponse != null && recentResponse['data'] != null) {
+          final data = recentResponse['data'];
+          // Based on user input, recent bookings might be in a list or inside a 'data' key if paginated
+          if (data is List) {
+            _upcomingTickets.addAll(data);
+          } else if (data is Map && data['data'] is List) {
+            _upcomingTickets.addAll(data['data']);
           }
         }
+
+        // Parse Past Tickets
+        if (pastResponse != null && pastResponse['data'] != null) {
+          final data = pastResponse['data'];
+          if (data is List) {
+            _pastTickets.addAll(data);
+          } else if (data is Map && data['data'] is List) {
+            _pastTickets.addAll(data['data']);
+          }
+        }
+        
+        print('Parsed ${_upcomingTickets.length} upcoming and ${_pastTickets.length} past tickets');
       });
     }
   }
@@ -113,10 +145,7 @@ class _MyTicketsListScreenState extends State<MyTicketsListScreen> {
                               title: 'Sign in',
                               onTap: () async {
                                 await context.push(const LoginScreen());
-                                if (AppState.loggedIn) {
-                                  setState(() => _isLoading = true);
-                                  _fetchMyTickets();
-                                }
+                                // Listener in initState will automatically trigger _fetchMyTickets
                               },
                             ),
                           ],
@@ -182,14 +211,32 @@ class _MyTicketsListScreenState extends State<MyTicketsListScreen> {
                           itemBuilder: (context, index) {
                             final item = displayList[index];
                             final event = item['event'] ?? {};
-                            final imageUrl = event['event_img'] ?? event['event_thumbnail'] ?? item['event_img'] ?? 'https://picsum.photos/100/100?random=$index';
-                            final title = event['title'] ?? item['title'] ?? item['event_name'] ?? 'Ticket';
-                            final date = event['start_date'] ?? item['start_date'] ?? 'N/A';
-                            final time = event['start_time'] ?? item['start_time'] ?? 'N/A';
-                            final location = event['venue'] ?? item['venue'] ?? 'N/A';
+                            
+                            // Image parsing: check for thumbnail (new API) or event_img
+                            String? imageUrl;
+                            if (item['thumbnail'] != null) {
+                              imageUrl = item['thumbnail'].toString().trim();
+                            } else if (event['thumbnail'] != null) {
+                              imageUrl = event['thumbnail'].toString().trim();
+                            } else {
+                              imageUrl = event['event_img'] ?? event['event_thumbnail'] ?? item['event_img'] ?? '';
+                            }
+                            
+                            // Clean trailing comma if any
+                            if (imageUrl != null && imageUrl.endsWith(',')) {
+                              imageUrl = imageUrl.substring(0, imageUrl.length - 1);
+                            }
+
+                            // Title parsing: check for event_title (new API) or title
+                            final title = item['event_title'] ?? event['event_title'] ?? event['title'] ?? item['title'] ?? item['event_name'] ?? 'Ticket';
+                            
+                            final date = item['event_start_date'] ?? event['start_date'] ?? item['start_date'] ?? 'N/A';
+                            final time = item['event_start_time'] ?? event['start_time'] ?? item['start_time'] ?? 'N/A';
+                            final location = item['event_location'] ?? event['venue'] ?? item['venue'] ?? 'N/A';
                             
                             return _buildTicketListItem(
-                              imageUrl: imageUrl,
+                              item: item,
+                              imageUrl: imageUrl ?? '',
                               title: title,
                               date: date,
                               time: time,
@@ -234,6 +281,7 @@ class _MyTicketsListScreenState extends State<MyTicketsListScreen> {
   }
 
   Widget _buildTicketListItem({
+    required Map<String, dynamic> item,
     required String imageUrl,
     required String title,
     required String date,
@@ -246,7 +294,7 @@ class _MyTicketsListScreenState extends State<MyTicketsListScreen> {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => const TicketDetailsScreen(), // Ensure this screen expects whatever it needs or modify it accordingly later
+            builder: (context) => TicketDetailsScreen(ticket: item),
           ),
         );
       },
@@ -257,19 +305,19 @@ class _MyTicketsListScreenState extends State<MyTicketsListScreen> {
           children: [
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
-              child: Image.network(
-                imageUrl,
+              child: CustomImage(
+                (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) 
+                    ? imageUrl 
+                    : resolvePublicUrl(imageUrl),
                 width: 60,
                 height: 60,
                 fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
-                  return Container(
-                    width: 60,
-                    height: 60,
-                    color: Colors.grey.shade300,
-                    child: const Icon(Icons.image_not_supported, color: Colors.grey),
-                  );
-                },
+                whenEmpty: Container(
+                  width: 60,
+                  height: 60,
+                  color: Colors.grey.shade300,
+                  child: const Icon(Icons.image_not_supported, color: Colors.grey),
+                ),
               ),
             ),
             const SizedBox(width: 12),

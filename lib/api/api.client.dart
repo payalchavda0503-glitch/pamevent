@@ -811,6 +811,51 @@ class ApiClient {
     return null;
   }
 
+  static Future<Map<String, dynamic>?> customerRecentTickets({int page = 1}) async {
+    try {
+      final response = await _dio.getUri(
+        ApiConfig.customerRecentTickets.replace(queryParameters: {'page': page.toString()}),
+      );
+      if (response.data['status'] == 100) return response.data;
+      handleToastMessage(response.data['message']);
+    } catch (e) {
+      if (kDebugMode) rethrow;
+      dev.log('Error in customerRecentTickets => $e');
+    }
+    return null;
+  }
+
+  static Future<Map<String, dynamic>?> customerPastTickets({int page = 1}) async {
+    try {
+      final response = await _dio.getUri(
+        ApiConfig.customerPastTickets.replace(queryParameters: {'page': page.toString()}),
+      );
+      if (response.data['status'] == 100) return response.data;
+      handleToastMessage(response.data['message']);
+    } catch (e) {
+      if (kDebugMode) rethrow;
+      dev.log('Error in customerPastTickets => $e');
+    }
+    return null;
+  }
+
+  static Future<Map<String, dynamic>?> customerBookingDetails(String bookingId, {String? id}) async {
+    try {
+      final response = await _dio.postUri(
+        id != null 
+          ? ApiConfig.customerBookingDetails.replace(queryParameters: {'id': id})
+          : ApiConfig.customerBookingDetails,
+        data: FormData.fromMap({'booking_id': bookingId}),
+      );
+      if (response.data['status'] == 100) return response.data;
+      handleToastMessage(response.data['message']);
+    } catch (e) {
+      if (kDebugMode) rethrow;
+      dev.log('Error in customerBookingDetails => $e');
+    }
+    return null;
+  }
+
   static Future<Map<String, dynamic>?> customerGetPaymentGateways() async {
     try {
       final response = await _dio.getUri(ApiConfig.paymentGateway);

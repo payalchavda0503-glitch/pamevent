@@ -12,6 +12,9 @@ class ApiConfig {
   static Uri get editProfile => Uri.parse('$_customerBaseUrl/edit_profile');
   static Uri get customerEvents => Uri.parse('$_customerBaseUrl/events');
   static Uri get customerMyTickets => Uri.parse('$_customerBaseUrl/my_tickets');
+  static Uri get customerBookingDetails => Uri.parse('$_customerBaseUrl/booking_details');
+  static Uri get customerRecentTickets => Uri.parse('$_customerBaseUrl/my_tickets/recent');
+  static Uri get customerPastTickets => Uri.parse('$_customerBaseUrl/my_tickets/past');
   static Uri get customerEventDetail => Uri.parse('$_customerBaseUrl/event_detail');
   static Uri get customerEventTicketDetails => Uri.parse('$_customerBaseUrl/event_ticket_details');
   static Uri get artists => Uri.parse('$_customerBaseUrl/artists');
