@@ -301,7 +301,7 @@ class _MyTicketsListScreenState extends State<MyTicketsListScreen> {
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
@@ -324,6 +324,7 @@ class _MyTicketsListScreenState extends State<MyTicketsListScreen> {
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Row(
                     children: [
@@ -333,25 +334,15 @@ class _MyTicketsListScreenState extends State<MyTicketsListScreen> {
                           style: const TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
+                            height: 1.2,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: isUpcoming ? Colors.teal : Colors.grey,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          isUpcoming ? 'upcoming' : 'past',
-                          style: const TextStyle(color: AppColors.white, fontSize: 8, fontWeight: FontWeight.bold),
-                        ),
-                      ),
                     ],
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 4),
                   Row(
                     children: [
                       const Icon(Icons.calendar_today, size: 12, color: AppColors.primary),
@@ -364,10 +355,11 @@ class _MyTicketsListScreenState extends State<MyTicketsListScreen> {
                       const Icon(Icons.access_time, size: 12, color: AppColors.primary),
                       const SizedBox(width: 4),
                       Text(time, style: const TextStyle(fontSize: 11, color: AppColors.darkGrey)),
-                      const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 4),
-                        child: Text('|', style: TextStyle(color: AppColors.grey)),
-                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
                       const Icon(Icons.location_on, size: 12, color: AppColors.primary),
                       const SizedBox(width: 4),
                       Expanded(

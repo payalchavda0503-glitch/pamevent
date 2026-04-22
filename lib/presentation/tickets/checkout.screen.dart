@@ -439,6 +439,21 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         iconTheme: const IconThemeData(color: Colors.white),
         centerTitle: true,
       ),
+      bottomNavigationBar: SafeArea(
+        child: Container(
+          padding: const EdgeInsets.all(16.0),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, -2))],
+          ),
+          child: CustomButton(
+            title: 'Proceed to Pay',
+            onTap: () {
+              _proceedToCheckout();
+            },
+          ),
+        ),
+      ),
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
@@ -605,12 +620,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           ],
         ),
         const SizedBox(height: 24),
-        CustomButton(
-          title: 'Proceed to Pay',
-          onTap: () {
-            _proceedToCheckout();
-          },
-        ),
       ],
     );
   }
@@ -670,63 +679,80 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
            ],
         ),
         const SizedBox(height: 32),
-        const Text('Coupon', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 12),
         Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-             Expanded(
-               child: SizedBox(
-                 height: 48,
-                 child: TextField(
-                   controller: _couponController,
-                   decoration: const InputDecoration(
-                     border: OutlineInputBorder(),
-                     contentPadding: EdgeInsets.symmetric(horizontal: 12),
-                     hintText: 'Enter coupon code'
-                   ),
-                 ),
-               ),
-             ),
-             GestureDetector(
-               onTap: _applyCoupon,
-               child: Container(
-                 height: 48,
-                 padding: const EdgeInsets.symmetric(horizontal: 24),
-                 color: AppColors.primary,
-                 child: const Center(child: Text('Apply', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
-               ),
-             )
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Coupon', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    height: 48,
+                    child: TextField(
+                      controller: _couponController,
+                      decoration: InputDecoration(
+                        border: const OutlineInputBorder(),
+                        contentPadding: const EdgeInsets.only(left: 12),
+                        hintText: 'Code',
+                        suffixIcon: Padding(
+                          padding: const EdgeInsets.all(4.0),
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              padding: const EdgeInsets.symmetric(horizontal: 12),
+                              minimumSize: Size.zero,
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                            ),
+                            onPressed: _applyCoupon,
+                            child: const Text('Apply', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Referral', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    height: 48,
+                    child: TextField(
+                      controller: _referralController,
+                      decoration: InputDecoration(
+                        border: const OutlineInputBorder(),
+                        contentPadding: const EdgeInsets.only(left: 12),
+                        hintText: 'Ref Code',
+                        suffixIcon: Padding(
+                          padding: const EdgeInsets.all(4.0),
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              padding: const EdgeInsets.symmetric(horizontal: 12),
+                              minimumSize: Size.zero,
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                            ),
+                            onPressed: _applyReferral,
+                            child: const Text('Apply', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
-        const SizedBox(height: 24),
-        const Text('Referral Discount', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-             Expanded(
-               child: SizedBox(
-                 height: 48,
-                 child: TextField(
-                   controller: _referralController,
-                   decoration: const InputDecoration(
-                     border: OutlineInputBorder(),
-                     contentPadding: EdgeInsets.symmetric(horizontal: 12),
-                     hintText: 'Enter referral code'
-                   ),
-                 ),
-               ),
-             ),
-             GestureDetector(
-               onTap: _applyReferral,
-               child: Container(
-                 height: 48,
-                 padding: const EdgeInsets.symmetric(horizontal: 24),
-                 color: AppColors.primary,
-                 child: const Center(child: Text('Apply', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
-               ),
-             )
-          ],
-        )
       ],
     );
   }

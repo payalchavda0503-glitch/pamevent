@@ -1,11 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'dart:convert';
+import 'dart:io';
+import 'package:dio/dio.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:open_filex/open_filex.dart';
+import 'package:path/path.dart' as p;
 import '../../api/api.client.dart';
 import '../../helpers/app_colors.dart';
 import '../../helpers/public_url.dart';
+import '../../services/toast.service.dart';
 import '../shared/widgets/custom_button.widget.dart';
 import '../shared/widgets/custom_image.dart';
+import 'order_details.screen.dart';
 
 class TicketDetailsScreen extends StatefulWidget {
   final Map<String, dynamic> ticket;
@@ -117,6 +124,10 @@ class _TicketDetailsScreenState extends State<TicketDetailsScreen> {
     final List<dynamic> tickets = ticketData['qr_codes'] ?? ticketData['tickets'] ?? [];
     final int ticketCount = tickets.isNotEmpty ? tickets.length : 1;
 
+    // Get current ticket id based on the pager
+    final currentVisibleTicket = tickets.isNotEmpty && _currentPage < tickets.length ? tickets[_currentPage] : ticketData;
+    final currentOrderTicketId = currentVisibleTicket['ticket_id'] ?? currentVisibleTicket['id'] ?? 'N/A';
+
     return Scaffold(
       backgroundColor: AppColors.white,
       body: SafeArea(
@@ -197,9 +208,54 @@ class _TicketDetailsScreenState extends State<TicketDetailsScreen> {
                               ),
                             ),
                             
+                            // Event Details Static Info
+                            Padding(
+                              padding: const EdgeInsets.all(16.0),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    title,
+                                    style: const TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    children: [
+                                      const Icon(Icons.calendar_today, size: 12, color: AppColors.primary),
+                                      const SizedBox(width: 4),
+                                      Text(date, style: const TextStyle(fontSize: 11, color: AppColors.darkGrey)),
+                                      const Padding(
+                                        padding: EdgeInsets.symmetric(horizontal: 4),
+                                        child: Text('|', style: TextStyle(color: AppColors.grey)),
+                                      ),
+                                      const Icon(Icons.access_time, size: 12, color: AppColors.primary),
+                                      const SizedBox(width: 4),
+                                      Text(time, style: const TextStyle(fontSize: 11, color: AppColors.darkGrey)),
+                                      const Padding(
+                                        padding: EdgeInsets.symmetric(horizontal: 4),
+                                        child: Text('|', style: TextStyle(color: AppColors.grey)),
+                                      ),
+                                      const Icon(Icons.location_on, size: 12, color: AppColors.primary),
+                                      const SizedBox(width: 4),
+                                      Expanded(
+                                        child: Text(
+                                          location,
+                                          style: const TextStyle(fontSize: 11, color: AppColors.primary, fontWeight: FontWeight.w500),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                            
                             // Tickets Paging (Multiple QR Codes)
                             SizedBox(
-                              height: 380, // Fixed height for the ticket info part
+                              height: 280, // Fixed height for ticket info
                               child: PageView.builder(
                                 controller: _pageController,
                                 onPageChanged: (index) {
@@ -211,51 +267,16 @@ class _TicketDetailsScreenState extends State<TicketDetailsScreen> {
                                   final qrCodeData = currentTicket['ticket_number'] ?? currentTicket['qr_code'] ?? bookingId;
                                   final attendeeName = currentTicket['name'] ?? currentTicket['customer_name'] ?? 'Guest';
                                   final ticketType = currentTicket['ticket_name'] ?? currentTicket['ticket_type'] ?? 'General Admission';
+                                  final ticketId = currentTicket['ticket_id'] ?? currentTicket['id'] ?? 'N/A';
 
                                   return Padding(
-                                    padding: const EdgeInsets.all(16.0),
+                                    padding: const EdgeInsets.symmetric(horizontal: 16.0),
                                     child: Column(
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
-                                        Text(
-                                          title,
-                                          style: const TextStyle(
-                                            fontSize: 18,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 8),
-                                        Row(
-                                          children: [
-                                            const Icon(Icons.calendar_today, size: 12, color: AppColors.primary),
-                                            const SizedBox(width: 4),
-                                            Text(date, style: const TextStyle(fontSize: 11, color: AppColors.darkGrey)),
-                                            const Padding(
-                                              padding: EdgeInsets.symmetric(horizontal: 4),
-                                              child: Text('|', style: TextStyle(color: AppColors.grey)),
-                                            ),
-                                            const Icon(Icons.access_time, size: 12, color: AppColors.primary),
-                                            const SizedBox(width: 4),
-                                            Text(time, style: const TextStyle(fontSize: 11, color: AppColors.darkGrey)),
-                                            const Padding(
-                                              padding: EdgeInsets.symmetric(horizontal: 4),
-                                              child: Text('|', style: TextStyle(color: AppColors.grey)),
-                                            ),
-                                            const Icon(Icons.location_on, size: 12, color: AppColors.primary),
-                                            const SizedBox(width: 4),
-                                            Expanded(
-                                              child: Text(
-                                                location,
-                                                style: const TextStyle(fontSize: 11, color: AppColors.primary, fontWeight: FontWeight.w500),
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 16),
                                         Center(
                                           child: Text(
-                                            'Booking ID: $bookingId',
+                                            'Ticket ID: $ticketId',
                                             style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
                                           ),
                                         ),
@@ -360,18 +381,31 @@ class _TicketDetailsScreenState extends State<TicketDetailsScreen> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Text(
-                              'Booking ID: $bookingId',
+                              'Ticket ID: $currentOrderTicketId',
                               style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
                             ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: AppColors.primary,
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: const Text(
-                                'Order details',
-                                style: TextStyle(color: AppColors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                            GestureDetector(
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => OrderDetailsScreen(
+                                      bookingData: _bookingDetails ?? {},
+                                      ticketId: currentOrderTicketId,
+                                    ),
+                                  ),
+                                );
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: AppColors.primary,
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: const Text(
+                                  'Order details',
+                                  style: TextStyle(color: AppColors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                                ),
                               ),
                             ),
                           ],
@@ -385,7 +419,34 @@ class _TicketDetailsScreenState extends State<TicketDetailsScreen> {
                           Expanded(
                             child: CustomButton.outline(
                               title: 'Download ticket',
-                              onTap: () {},
+                              onTap: () async {
+                                final paymentInfo = _bookingDetails?['payment_info'];
+                                if (paymentInfo != null && paymentInfo['invoice'] != null) {
+                                  final invoiceUrl = paymentInfo['invoice'].toString();
+                                  if (invoiceUrl.isNotEmpty) {
+                                    try {
+                                      ToastService.show('Downloading invoice...');
+                                      final uri = Uri.parse(invoiceUrl);
+                                      final fileName = p.basename(uri.path).split('?').first;
+                                      final name = fileName.isNotEmpty && fileName.endsWith('.pdf') ? fileName : 'invoice.pdf';
+                                      
+                                      final dir = await getTemporaryDirectory();
+                                      final savePath = p.join(dir.path, name);
+                                      
+                                      final dio = Dio();
+                                      await dio.download(invoiceUrl, savePath);
+                                      
+                                      ToastService.show('Opened invoice!', backgroundColor: Colors.green);
+                                      await OpenFilex.open(savePath);
+                                      return;
+                                    } catch (e) {
+                                      ToastService.show('Failed to download invoice.');
+                                      return;
+                                    }
+                                  }
+                                }
+                                ToastService.show('Invoice link not available.');
+                              },
                             ),
                           ),
                           const SizedBox(width: 16),

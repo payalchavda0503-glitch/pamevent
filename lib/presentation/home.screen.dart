@@ -307,6 +307,16 @@ class _HomeScreenState extends State<HomeScreen> {
                                   child: _buildCategoryItem(
                                     category['name'] ?? 'Category',
                                     resolvePublicUrl(category['image_url'] ?? category['image']) ?? 'https://picsum.photos/200/300',
+                                    () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) => AllEventsScreen(
+                                            initialCategory: category['name'],
+                                          ),
+                                        ),
+                                      );
+                                    },
                                   ),
                                 );
                               },
@@ -506,59 +516,62 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildCategoryItem(String title, String imageUrl) {
-    return Container(
-      width: 100,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
-        color: AppColors.lightGrey,
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          CustomImage(
-            imageUrl,
-            fit: BoxFit.cover,
-            whenEmpty: Container(
-              color: AppColors.lightGrey,
-              child: const Center(
-                child: Icon(
-                  Icons.image_outlined,
-                  color: AppColors.grey,
-                  size: 30,
+  Widget _buildCategoryItem(String title, String imageUrl, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 100,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
+          color: AppColors.lightGrey,
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            CustomImage(
+              imageUrl,
+              fit: BoxFit.cover,
+              whenEmpty: Container(
+                color: AppColors.lightGrey,
+                child: const Center(
+                  child: Icon(
+                    Icons.image_outlined,
+                    color: AppColors.grey,
+                    size: 30,
+                  ),
                 ),
               ),
             ),
-          ),
-          Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Colors.transparent,
-                  Colors.black.withValues(alpha: 0.7),
-                ],
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.transparent,
+                    Colors.black.withValues(alpha: 0.7),
+                  ],
+                ),
               ),
             ),
-          ),
-          Positioned(
-            bottom: 8,
-            left: 8,
-            right: 8,
-            child: Text(
-              title,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
+            Positioned(
+              bottom: 8,
+              left: 8,
+              right: 8,
+              child: Text(
+                title,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
               ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

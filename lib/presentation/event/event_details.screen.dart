@@ -1,7 +1,11 @@
+import 'dart:async';
+import 'dart:developer' as dev;
 import 'package:flutter/material.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 import '../../api/api.client.dart';
 import '../../helpers/app_colors.dart';
 import '../../helpers/public_url.dart';
+import '../../helpers/utils.dart';
 import '../shared/widgets/custom_button.widget.dart';
 import '../shared/widgets/custom_image.dart';
 import '../search/artist_details.screen.dart';
@@ -28,8 +32,14 @@ class EventDetailsScreen extends StatefulWidget {
 class _EventDetailsScreenState extends State<EventDetailsScreen> {
   int _selectedTabIndex = 0;
   bool _isLoading = true;
+  bool _showMap = false;
   Map<String, dynamic>? _eventDetail;
   List<dynamic> _performers = [];
+  List<String> _galleryImages = [];
+  int _currentImageIndex = 0;
+  Timer? _sliderTimer;
+  final PageController _pageController = PageController();
+  WebViewController? _mapController;
 
   @override
   void initState() {
@@ -41,19 +51,68 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
     }
   }
 
+  @override
+  void dispose() {
+    _sliderTimer?.cancel();
+    _pageController.dispose();
+    super.dispose();
+  }
+
   Future<void> _fetchEventDetail() async {
+    debugPrint('Fetching details for eventId: ${widget.eventId}');
     setState(() => _isLoading = true);
     try {
       final data = await ApiClient.getCustomerEventDetail(widget.eventId);
-      print('event detail API Full Response: $data');
+      debugPrint('Event detail API response received for eventId: ${widget.eventId}');
+      
+      // Printing in chunks so it shows in any console (Terminal or Debug Console)
+      String dataStr = 'FULL API DATA: $data';
+      for (int i = 0; i < dataStr.length; i += 1000) {
+        int end = (i + 1000 < dataStr.length) ? i + 1000 : dataStr.length;
+        print(dataStr.substring(i, end));
+      }
       
       if (mounted) {
+        if (data == null) {
+          setState(() {
+            _isLoading = false;
+          });
+          // Show error toast or handle null data
+          return;
+        }
         setState(() {
           _eventDetail = data;
           // Extract performers directly from event detail response
-          _performers = data?['performers'] is List ? data!['performers'] : [];
+          _performers = data['performers'] is List ? data['performers'] : [];
+          
+          // Extract gallery images
+          if (data['gallery_images'] is List) {
+            _galleryImages = List<String>.from(data['gallery_images'].map((e) {
+              String url = e.toString().trim();
+              if (url.endsWith(',')) {
+                url = url.substring(0, url.length - 1);
+              }
+              return url;
+            }));
+          }
+          
+          // Add the main event image to the gallery if it's not already there
+          String? mainImg = (data['event_img'] ?? data['event_thumbnail'])?.toString().trim();
+          if (mainImg != null && mainImg.endsWith(',')) {
+            mainImg = mainImg.substring(0, mainImg.length - 1);
+          }
+
+          if (mainImg != null && !_galleryImages.contains(mainImg)) {
+             _galleryImages.insert(0, mainImg);
+          }
+          
+          if (_galleryImages.isEmpty && widget.imageUrl.isNotEmpty) {
+            _galleryImages.add(widget.imageUrl);
+          }
+
           _isLoading = false;
         });
+        _startSliderTimer();
       }
     } catch (e) {
       debugPrint('Error fetching event details: $e');
@@ -61,6 +120,73 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
         setState(() => _isLoading = false);
       }
     }
+  }
+
+  void _startSliderTimer() {
+    _sliderTimer?.cancel();
+    if (_galleryImages.length > 1) {
+      _sliderTimer = Timer.periodic(const Duration(seconds: 4), (timer) {
+        if (_pageController.hasClients) {
+          _currentImageIndex = (_currentImageIndex + 1) % _galleryImages.length;
+          _pageController.animateToPage(
+            _currentImageIndex,
+            duration: const Duration(milliseconds: 800),
+            curve: Curves.easeInOut,
+          );
+        }
+      });
+    }
+  }
+
+  void _openImagePreview(int initialIndex) {
+    showDialog(
+      context: context,
+      builder: (context) => _ImagePreviewModal(
+        images: _galleryImages,
+        initialIndex: initialIndex,
+      ),
+    );
+  }
+
+  void _toggleMap({String? address, String? fullUrl}) {
+    setState(() {
+      _showMap = !_showMap;
+      if (_showMap && _mapController == null) {
+        String mapUrl = '';
+        
+        if (fullUrl != null && fullUrl.isNotEmpty) {
+          // If fullUrl starts with //, prepend https:
+          mapUrl = fullUrl.startsWith('//') ? 'https:$fullUrl' : fullUrl;
+          // Unescape &amp; to &
+          mapUrl = mapUrl.replaceAll('&amp;', '&');
+        } else if (address != null && address.isNotEmpty) {
+          final encodedAddress = Uri.encodeComponent(address);
+          mapUrl = 'https://maps.google.com/maps?q=$encodedAddress&output=embed';
+        }
+
+        if (mapUrl.isNotEmpty) {
+          final htmlContent = '''
+            <!DOCTYPE html>
+            <html>
+              <head>
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <style>
+                  body { margin: 0; padding: 0; overflow: hidden; }
+                  iframe { width: 100%; height: 100vh; border: 0; }
+                </style>
+              </head>
+              <body>
+                <iframe src="$mapUrl" allowfullscreen></iframe>
+              </body>
+            </html>
+          ''';
+
+          _mapController = WebViewController()
+            ..setJavaScriptMode(JavaScriptMode.unrestricted)
+            ..loadHtmlString(htmlContent);
+        }
+      }
+    });
   }
 
   @override
@@ -71,15 +197,60 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
       );
     }
 
+    if (_eventDetail == null && widget.eventId != 0) {
+      return Scaffold(
+        appBar: AppBar(backgroundColor: AppColors.white, elevation: 0, leading: BackButton(color: AppColors.black)),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.error_outline, size: 48, color: Colors.red),
+              const SizedBox(height: 16),
+              const Text('Failed to load event details.'),
+              const SizedBox(height: 8),
+              const Text('Please try again later.'),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: _fetchEventDetail,
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     final data = _eventDetail ?? {};
+    
+    // Improved image URL parsing to handle trailing commas or invalid data
+    String? rawImageUrl = data['event_img'] ?? data['event_thumbnail'];
+    String imageUrl = rawImageUrl?.toString().trim() ?? widget.imageUrl;
+    if (imageUrl.endsWith(',')) {
+      imageUrl = imageUrl.substring(0, imageUrl.length - 1);
+    }
+    
     final title = data['title'] ?? widget.title;
-    final imageUrl = data['event_img'] ?? data['event_thumbnail'] ?? widget.imageUrl;
     final venue = data['venue'] ?? '';
     final address = '${data['city'] ?? ''}, ${data['country'] ?? ''}'.trim();
-    final startDate = data['start_date'] ?? '';
-    final startTime = data['start_time'] ?? '';
+    
+    // Improved date extraction with fallback to event_dates
+    String startDate = data['start_date'] ?? '';
+    String startTime = data['start_time'] ?? '';
+    
+    if (startDate.isEmpty && data['multiple_dates'] is List && (data['multiple_dates'] as List).isNotEmpty) {
+      final firstDateObj = (data['multiple_dates'] as List).first;
+      startDate = firstDateObj['start_date']?.toString() ?? '';
+      startTime = firstDateObj['start_time']?.toString() ?? '';
+    }
+
     final description = data['description'] ?? '';
     final refundPolicy = data['refund_policy'] ?? '';
+    
+    // Improved address extraction from API
+    final mapAddress = (data['map_address'] != null && data['map_address'].toString().isNotEmpty)
+        ? data['map_address'].toString()
+        : '$venue, $address';
+    final mapFullUrl = data['map_full_address']?.toString();
 
     return Scaffold(
       backgroundColor: AppColors.white,
@@ -122,18 +293,62 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Event Image
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(16),
-                        child: CustomImage(
-                          resolvePublicUrl(imageUrl) ?? imageUrl,
-                          width: double.infinity,
-                          height: 200,
-                          fit: BoxFit.cover,
-                          whenEmpty: Container(
-                            height: 200,
-                            color: AppColors.lightGrey,
-                            child: const Icon(Icons.image_not_supported, size: 50),
+                      // Event Image Slider
+                      SizedBox(
+                        height: 200,
+                        width: double.infinity,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(16),
+                          child: Stack(
+                            children: [
+                              PageView.builder(
+                                controller: _pageController,
+                                itemCount: _galleryImages.length,
+                                onPageChanged: (index) {
+                                  setState(() => _currentImageIndex = index);
+                                },
+                                itemBuilder: (context, index) {
+                                  final img = _galleryImages[index];
+                                  return GestureDetector(
+                                    onTap: () => _openImagePreview(index),
+                                    child: CustomImage(
+                                      resolvePublicUrl(img) ?? img,
+                                      width: double.infinity,
+                                      height: 200,
+                                      fit: BoxFit.cover,
+                                      whenEmpty: Container(
+                                        height: 200,
+                                        color: AppColors.lightGrey,
+                                        child: const Icon(Icons.image_not_supported, size: 50),
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                              if (_galleryImages.length > 1)
+                                Positioned(
+                                  bottom: 12,
+                                  left: 0,
+                                  right: 0,
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: List.generate(
+                                      _galleryImages.length,
+                                      (index) => Container(
+                                        width: 8,
+                                        height: 8,
+                                        margin: const EdgeInsets.symmetric(horizontal: 4),
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          color: _currentImageIndex == index
+                                              ? AppColors.primary
+                                              : AppColors.white.withValues(alpha: 0.5),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
                       ),
@@ -214,7 +429,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                                   children: [
                                     const Icon(Icons.calendar_today, size: 14, color: AppColors.primary),
                                     const SizedBox(width: 4),
-                                    Text(startDate, style: const TextStyle(fontSize: 12, color: AppColors.darkGrey)),
+                                    Text(formatEventDate(startDate), style: const TextStyle(fontSize: 12, color: AppColors.darkGrey)),
                                     const Padding(
                                       padding: EdgeInsets.symmetric(horizontal: 4),
                                       child: Text('|', style: TextStyle(color: AppColors.grey)),
@@ -314,24 +529,52 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  address,
+                                  mapAddress,
                                   style: const TextStyle(fontSize: 13, color: AppColors.darkGrey),
                                 ),
-                                const SizedBox(height: 8),
-                                Row(
-                                  children: const [
-                                    Text(
-                                      'Show Map',
-                                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-                                    ),
-                                    Icon(Icons.keyboard_arrow_down, size: 18),
-                                  ],
+                                const SizedBox(height: 12),
+                                GestureDetector(
+                                  onTap: () => _toggleMap(address: mapAddress, fullUrl: mapFullUrl),
+                                  child: Row(
+                                    children: [
+                                      Text(
+                                        _showMap ? 'Hide Map' : 'Show Map',
+                                        style: const TextStyle(
+                                          fontSize: 13, 
+                                          fontWeight: FontWeight.w500,
+                                          color: AppColors.primary,
+                                        ),
+                                      ),
+                                      Icon(
+                                        _showMap ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down, 
+                                        size: 18,
+                                        color: AppColors.primary,
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ],
                             ),
                           ),
                         ],
                       ),
+                      
+                      // Embedded Map
+                      if (_showMap && _mapController != null) ...[
+                        const SizedBox(height: 16),
+                        Container(
+                          height: 250,
+                          width: double.infinity,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: AppColors.lightGrey),
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: WebViewWidget(controller: _mapController!),
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 24),
 
                       // Refund Policy
@@ -476,6 +719,163 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
             style: const TextStyle(fontSize: 12),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ImagePreviewModal extends StatefulWidget {
+  final List<String> images;
+  final int initialIndex;
+
+  const _ImagePreviewModal({
+    required this.images,
+    required this.initialIndex,
+  });
+
+  @override
+  State<_ImagePreviewModal> createState() => _ImagePreviewModalState();
+}
+
+class _ImagePreviewModalState extends State<_ImagePreviewModal> {
+  late PageController _previewController;
+  late int _currentIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentIndex = widget.initialIndex;
+    _previewController = PageController(initialPage: widget.initialIndex);
+  }
+
+  @override
+  void dispose() {
+    _previewController.dispose();
+    super.dispose();
+  }
+
+  void _nextPage() {
+    if (_currentIndex < widget.images.length - 1) {
+      _previewController.nextPage(
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    }
+  }
+
+  void _previousPage() {
+    if (_currentIndex > 0) {
+      _previewController.previousPage(
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog.fullscreen(
+      backgroundColor: Colors.black,
+      child: Stack(
+        children: [
+          // Image Pager
+          PageView.builder(
+            controller: _previewController,
+            itemCount: widget.images.length,
+            onPageChanged: (index) {
+              setState(() => _currentIndex = index);
+            },
+            itemBuilder: (context, index) {
+              final img = widget.images[index];
+              return InteractiveViewer(
+                minScale: 0.5,
+                maxScale: 4.0,
+                child: Center(
+                  child: CustomImage(
+                    resolvePublicUrl(img) ?? img,
+                    width: double.infinity,
+                    fit: BoxFit.contain,
+                  ),
+                ),
+              );
+            },
+          ),
+
+          // Close Button
+          Positioned(
+            top: 40,
+            right: 20,
+            child: IconButton(
+              icon: const Icon(Icons.close, color: Colors.white, size: 30),
+              onPressed: () => Navigator.pop(context),
+            ),
+          ),
+
+          // Navigation Buttons (Previous/Next)
+          if (widget.images.length > 1) ...[
+            // Previous Button
+            if (_currentIndex > 0)
+              Positioned(
+                left: 10,
+                top: 0,
+                bottom: 0,
+                child: Center(
+                  child: IconButton(
+                    icon: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.5),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 24),
+                    ),
+                    onPressed: _previousPage,
+                  ),
+                ),
+              ),
+
+            // Next Button
+            if (_currentIndex < widget.images.length - 1)
+              Positioned(
+                right: 10,
+                top: 0,
+                bottom: 0,
+                child: Center(
+                  child: IconButton(
+                    icon: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.5),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.arrow_forward_ios, color: Colors.white, size: 24),
+                    ),
+                    onPressed: _nextPage,
+                  ),
+                ),
+              ),
+          ],
+
+          // Image Counter
+          Positioned(
+            bottom: 40,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  '${_currentIndex + 1} / ${widget.images.length}',
+                  style: const TextStyle(color: Colors.white, fontSize: 16),
+                ),
+              ),
+            ),
           ),
         ],
       ),

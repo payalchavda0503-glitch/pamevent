@@ -68,6 +68,7 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
     setState(() => _isLoading = true);
     try {
       final results = await ApiClient.customerSearch(query);
+      print('Search results: $results');
       if (results != null) {
         setState(() {
           _events = results['events'] is List ? results['events'] : [];

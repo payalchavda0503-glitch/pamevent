@@ -5,6 +5,7 @@ import 'package:dio/io.dart' show DioForNative;
 import 'package:flutter/foundation.dart' show defaultTargetPlatform, kDebugMode, debugPrint;
 
 import '../helpers/extensions/string.extension.dart';
+import '../helpers/app_state.dart';
 import '../services/toast.service.dart';
 import './interceptors/auth.interceptor.dart';
 import './interceptors/logging.interceptor.dart';
@@ -62,13 +63,32 @@ class ApiClient {
   }
 
   // region Handle Error Response
+  static bool _isResponseSafe(Response response) {
+    if (response.data is! Map) {
+      debugPrint('API Error: Response data is not a Map. Actual type: ${response.data.runtimeType}');
+      return false;
+    }
+    return true;
+  }
+
   static void handleToastMessage(Object? key) {
     if (key is String) {
+      if (key.toLowerCase().contains('unauthenticated') || key.toLowerCase().contains('invalid token') || key.toLowerCase().contains('token expired')) {
+         ToastService.show('Session expired. Please log in again.');
+         AppState.logOut();
+         return;
+      }
       if (key.trim().isNotEmpty) ToastService.show(key);
     } else if (key is Map) {
       final errors = key.values.firstOrNull;
       if (errors is List && errors.isNotEmpty) {
-        ToastService.show(errors.first);
+        final msg = errors.first.toString();
+        if (msg.toLowerCase().contains('unauthenticated') || msg.toLowerCase().contains('invalid token') || msg.toLowerCase().contains('token expired')) {
+           ToastService.show('aapko fir se login karna padega or logout kr dijiye');
+           AppState.logOut();
+           return;
+        }
+        ToastService.show(msg);
       }
     }
   }
@@ -89,6 +109,7 @@ class ApiClient {
   static Future<Map<String, dynamic>?> settings() async {
     try {
       final response = await _dio.getUri(ApiConfig.init);
+      if (!_isResponseSafe(response)) return null;
       if (response.data['status'] == 100) {
         return response.data['data'];
       } else if (response.data['status'] == 101) {
@@ -104,6 +125,7 @@ class ApiClient {
   static Future<Map<String, dynamic>?> home() async {
     try {
       final response = await _dio.getUri(ApiConfig.home);
+      if (!_isResponseSafe(response)) return null;
       if (response.data['status'] == 100) {
         return response.data['data'];
       } else if (response.data['status'] == 101) {
@@ -119,7 +141,7 @@ class ApiClient {
   static Future<List<dynamic>?> getCategories() async {
     try {
       final response = await _dio.getUri(ApiConfig.categories);
-      print('Categories API Full Response: ${response.data}');
+      if (!_isResponseSafe(response)) return null;
       if (response.data['status'] == 100) {
         return response.data['data'] ?? [];
       } else if (response.data['status'] == 101) {
@@ -135,6 +157,7 @@ class ApiClient {
   static Future<Map<String, dynamic>?> getProfile() async {
     try {
       final response = await _dio.getUri(ApiConfig.profile);
+      if (!_isResponseSafe(response)) return null;
       if (response.data['status'] == 100) {
         return response.data['data'];
       } else if (response.data['status'] == 101) {
@@ -181,6 +204,9 @@ class ApiClient {
         ApiConfig.customerEvents,
         data: FormData.fromMap(formDataMap),
       );
+
+      if (!_isResponseSafe(response)) return null;
+
       if (response.data['status'] == 100) {
         return response.data['data'];
       } else if (response.data['status'] == 101) {
@@ -194,19 +220,21 @@ class ApiClient {
   }
 
   static Future<Map<String, dynamic>?> getCustomerEventDetail(int eventId) async {
+    debugPrint('API CALL: getCustomerEventDetail with event_id: $eventId');
     try {
       final response = await _dio.postUri(
         ApiConfig.customerEventDetail,
         data: FormData.fromMap({'event_id': eventId}),
       );
-      print('Event Detail API Response: ${response.data}');
+      
+      if (!_isResponseSafe(response)) return null;
+
       if (response.data['status'] == 100) {
         return response.data['data'];
       } else if (response.data['status'] == 101) {
         handleToastMessage(response.data['message']);
       }
     } catch (exception) {
-      if (kDebugMode) rethrow;
       dev.log('Error in getCustomerEventDetail ======> $exception');
     }
     return null;
@@ -218,7 +246,9 @@ class ApiClient {
         ApiConfig.customerEventTicketDetails,
         data: FormData.fromMap({'event_id': eventId}),
       );
-      print('Event Ticket Details API Response: ${response.data}');
+      
+      if (!_isResponseSafe(response)) return null;
+
       if (response.data['status'] == 100) {
         return response.data['data'];
       } else if (response.data['status'] == 101) {
@@ -236,6 +266,7 @@ class ApiClient {
       final response = await _dio.getUri(
         ApiConfig.artists.replace(queryParameters: {'artist': artistIds}),
       );
+      if (!_isResponseSafe(response)) return null;
       print('Artists API Response: ${response.data}');
       if (response.data['status'] == 100) {
         final data = response.data['data'];
@@ -266,6 +297,7 @@ class ApiClient {
           'per_page': perPage.toString(),
         }),
       );
+      if (!_isResponseSafe(response)) return null;
       if (response.data['status'] == 100) {
         return response.data['data'];
       } else if (response.data['status'] == 101) {
@@ -847,6 +879,7 @@ class ApiClient {
           : ApiConfig.customerBookingDetails,
         data: FormData.fromMap({'booking_id': bookingId}),
       );
+      if (!_isResponseSafe(response)) return null;
       if (response.data['status'] == 100) return response.data;
       handleToastMessage(response.data['message']);
     } catch (e) {

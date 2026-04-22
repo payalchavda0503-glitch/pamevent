@@ -51,8 +51,8 @@ class _LoginScreenState extends State<LoginScreen> {
     _createAccount = TapGestureRecognizer();
     _createAccount.onTap = () => context.push(const RegisterScreen());
     if (kDebugMode) {
-      _username.text = 'chavda';
-      _password.text = '123456';
+      _username.text = 'jeanpierrefinal';
+      _password.text = '12345678';
     }
     // if (kDebugMode) {
     //   _username.text = 'glinca21078';

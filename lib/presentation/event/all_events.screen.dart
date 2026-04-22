@@ -7,7 +7,8 @@ import '../shared/widgets/filter_bottom_sheet.widget.dart';
 import 'event_details.screen.dart';
 
 class AllEventsScreen extends StatefulWidget {
-  const AllEventsScreen({super.key});
+  final String? initialCategory;
+  const AllEventsScreen({super.key, this.initialCategory});
 
   @override
   State<AllEventsScreen> createState() => _AllEventsScreenState();
@@ -24,6 +25,9 @@ class _AllEventsScreenState extends State<AllEventsScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget.initialCategory != null) {
+      _activeFilters = {'category': widget.initialCategory};
+    }
     _fetchEvents();
     _scrollController.addListener(() {
       if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent * 0.8 &&
@@ -136,8 +140,44 @@ class _AllEventsScreenState extends State<AllEventsScreen> {
         ],
       ),
       body: SafeArea(
-        child: _events.isEmpty && _isLoading
-            ? const Center(child: CircularProgressIndicator())
+        child: _events.isEmpty
+            ? _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.event_busy, size: 64, color: AppColors.grey),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'No events found',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.black,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Please try a different category or search term.',
+                          style: TextStyle(color: AppColors.grey),
+                        ),
+                        const SizedBox(height: 24),
+                        TextButton(
+                          onPressed: () {
+                            setState(() {
+                              _activeFilters = null;
+                              _events = [];
+                              _currentPage = 1;
+                              _hasMore = true;
+                            });
+                            _fetchEvents();
+                          },
+                          child: const Text('Clear Filters'),
+                        ),
+                      ],
+                    ),
+                  )
             : RefreshIndicator(
                 onRefresh: () async {
                   setState(() {
@@ -174,7 +214,13 @@ class _AllEventsScreenState extends State<AllEventsScreen> {
   }
 
   Widget _buildEventItem(dynamic event) {
-    final eventId = event['id'] ?? event['event_id'] ?? 0;
+    int eventId = 0;
+    if (event['id'] != null) {
+      eventId = int.tryParse(event['id'].toString()) ?? 0;
+    } else if (event['event_id'] != null) {
+      eventId = int.tryParse(event['event_id'].toString()) ?? 0;
+    }
+    
     final title = event['title'] ?? 'Untitled Event';
     final imageUrl = event['event_thumbnail_url'] ?? 
                     resolvePublicUrl(event['event_thumbnail'] ?? event['image'] ?? event['event_img']) ?? 
