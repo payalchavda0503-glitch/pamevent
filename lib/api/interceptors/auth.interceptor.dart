@@ -13,7 +13,7 @@ class AuthInterceptor extends Interceptor {
     ErrorInterceptorHandler handler,
   ) async {
     if (err.response?.statusCode == 401) {
-      final expiredMsg = 'aapko fir se login karna padega or logout kr dijiye';
+      final expiredMsg = 'Session expired. Please log in again.';
       ToastService.show(
         expiredMsg,
         backgroundColor: AppColors.orange,

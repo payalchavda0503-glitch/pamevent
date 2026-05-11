@@ -11,6 +11,7 @@ import '../api/models/auth/profile.dart';
 import '../enums/pref_keys.dart';
 import '../presentation/splash/splash.screen.dart';
 import '../services/background.service.dart';
+import '../services/location.service.dart';
 import 'extensions/context.extension.dart';
 
 class AppState {
@@ -21,6 +22,7 @@ class AppState {
   }
 
   static Future<void> init() async {
+    print('=== APPSTATE: Initializing AppState ===');
     prefs = await SharedPreferences.getInstance();
     fbAuth = FacebookAuth.i;
     googleSignIn = GoogleSignIn(
@@ -32,6 +34,28 @@ class AppState {
     );
     ApiClient.init();
     await getProfile();
+    
+    // Clear any saved selected location so user has to select manually
+    print('=== APPSTATE: Clearing any saved selected location ===');
+    await prefs.remove(PrefKeys.selectedLocation.key);
+    selectedLocation.value = null;
+    
+    // Listen for location changes and save to prefs
+    print('=== APPSTATE: Adding listener for selectedLocation changes ===');
+    selectedLocation.addListener(() {
+      print('=== APPSTATE: selectedLocation changed to: ${selectedLocation.value} ===');
+      if (selectedLocation.value != null) {
+        print('=== APPSTATE: Saving location to prefs: ${selectedLocation.value} ===');
+        prefs.setString(PrefKeys.selectedLocation.key, selectedLocation.value!);
+      } else {
+        print('=== APPSTATE: Removing location from prefs ===');
+        prefs.remove(PrefKeys.selectedLocation.key);
+      }
+    });
+    
+    // Still call LocationService to get original current location for Select Location screen
+    print('=== APPSTATE: Calling LocationService.initializeLocation() for originalCurrentLocation ===');
+    await LocationService.initializeLocation();
     AppLifecycleListener(
       onPause: BackgroundService.startBackgroundTask,
       onDetach: BackgroundService.stopBackgroundTask,
@@ -54,6 +78,8 @@ class AppState {
 
   //region Global Settings
   static var settings = <String, dynamic>{};
+  static final ValueNotifier<String?> selectedLocation = ValueNotifier<String?>(null);
+  static final ValueNotifier<String?> originalCurrentLocation = ValueNotifier<String?>(null);
   static Map<String, dynamic>? get _images => settings['app_settings'];
 
   // Login Page, Register Page

@@ -1,6 +1,10 @@
 import 'dart:async';
 import 'dart:developer' as dev;
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../shared/widgets/price_display.widget.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import '../../api/api.client.dart';
 import '../../helpers/app_colors.dart';
@@ -9,6 +13,7 @@ import '../../helpers/utils.dart';
 import '../shared/widgets/custom_button.widget.dart';
 import '../shared/widgets/custom_image.dart';
 import '../search/artist_details.screen.dart';
+import '../search/venue_details.screen.dart';
 import '../tickets/select_tickets.screen.dart';
 
 class EventDetailsScreen extends StatefulWidget {
@@ -36,6 +41,8 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
   Map<String, dynamic>? _eventDetail;
   List<dynamic> _performers = [];
   List<String> _galleryImages = [];
+  List<dynamic> _faqs = [];
+  List<dynamic> _sponsors = [];
   int _currentImageIndex = 0;
   Timer? _sliderTimer;
   final PageController _pageController = PageController();
@@ -84,6 +91,11 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
           _eventDetail = data;
           // Extract performers directly from event detail response
           _performers = data['performers'] is List ? data['performers'] : [];
+          _faqs = data['faqs'] is List ? data['faqs'] : data['faq'] is List ? data['faq'] : [];
+          _sponsors = data['sponsors'] is List ? data['sponsors'] : [];
+          
+          print('FAQs count: ${_faqs.length}');
+          print('Sponsors count: ${_sponsors.length}');
           
           // Extract gallery images
           if (data['gallery_images'] is List) {
@@ -159,9 +171,22 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
           mapUrl = fullUrl.startsWith('//') ? 'https:$fullUrl' : fullUrl;
           // Unescape &amp; to &
           mapUrl = mapUrl.replaceAll('&amp;', '&');
+          
+          // If the URL is already an embed URL from google, we try to ensure it has the q parameter for the pin
+          if (mapUrl.contains('google.com/maps') && !mapUrl.contains('q=')) {
+            final encodedAddress = Uri.encodeComponent(address ?? '');
+            if (encodedAddress.isNotEmpty) {
+               if (mapUrl.contains('?')) {
+                 mapUrl += '&q=$encodedAddress';
+               } else {
+                 mapUrl += '?q=$encodedAddress';
+               }
+            }
+          }
         } else if (address != null && address.isNotEmpty) {
           final encodedAddress = Uri.encodeComponent(address);
-          mapUrl = 'https://maps.google.com/maps?q=$encodedAddress&output=embed';
+          // Using a more reliable embed format for pins
+          mapUrl = 'https://maps.google.com/maps?q=$encodedAddress&t=&z=15&ie=UTF8&iwloc=B&output=embed';
         }
 
         if (mapUrl.isNotEmpty) {
@@ -231,6 +256,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
     
     final title = data['title'] ?? widget.title;
     final venue = data['venue'] ?? '';
+     final venuepic = data['event_address'] ?? '';
     final address = '${data['city'] ?? ''}, ${data['country'] ?? ''}'.trim();
     
     // Improved date extraction with fallback to event_dates
@@ -278,7 +304,14 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                     children: [
                       IconButton(
                         icon: const Icon(Icons.ios_share, color: AppColors.black),
-                        onPressed: () {},
+                        onPressed: () {
+                          final slug = data['slug'] ?? '';
+                          final id = widget.eventId;
+                          if (slug.isNotEmpty) {
+                            final shareUrl = 'https://pamevent.com/event/$slug/$id';
+                            Share.share('Check out this event: $title\n$shareUrl');
+                          }
+                        },
                       ),
                     ],
                   ),
@@ -444,10 +477,27 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                                     const Icon(Icons.location_on, size: 14, color: AppColors.primary),
                                     const SizedBox(width: 4),
                                     Expanded(
-                                      child: Text(
-                                        venue,
-                                        style: const TextStyle(fontSize: 12, color: AppColors.primary, fontWeight: FontWeight.w500),
-                                        overflow: TextOverflow.ellipsis,
+                                      child: GestureDetector(
+                                        onTap: () {
+                                          final venueName = data['venue']?.toString() ?? '';
+                                          final venueSlug = data['venue_detail']?['slug']?.toString() ?? venueName;
+                                          if (venueSlug.isNotEmpty) {
+                                            Navigator.push(
+                                              context,
+                                              MaterialPageRoute(
+                                                builder: (context) => VenueDetailsScreen(
+                                                  slug: venueSlug,
+                                                  name: venueName,
+                                                ),
+                                              ),
+                                            );
+                                          }
+                                        },
+                                        child: Text(
+                                          venuepic,
+                                          style: const TextStyle(fontSize: 12, color: AppColors.primary, fontWeight: FontWeight.w500),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
                                       ),
                                     ),
                                   ],
@@ -465,22 +515,16 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                           _buildTab('About', 0),
                           const SizedBox(width: 16),
                           _buildTab('FAQ', 1),
-                          const SizedBox(width: 16),
-                          _buildTab('Sponsors', 2),
+                          if (_sponsors.isNotEmpty) ...[
+                            const SizedBox(width: 16),
+                            _buildTab('Sponsors', 2),
+                          ],
                         ],
                       ),
                       const SizedBox(height: 16),
 
-                      // Description
-                      if (description.isNotEmpty)
-                        Text(
-                          description.replaceAll(RegExp(r'<[^>]*>|&nbsp;'), ''),
-                          style: const TextStyle(
-                            fontSize: 13,
-                            color: AppColors.darkGrey,
-                            height: 1.4,
-                          ),
-                        ),
+                      // Tab Content
+                      _buildTabContent(description),
                       const SizedBox(height: 24),
 
                       // Performers
@@ -523,10 +567,27 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  venue,
-                                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.primary),
-                                ),
+                                GestureDetector(
+                                   onTap: () {
+                                      final venueName = data['venue']?.toString() ?? '';
+                                      final venueSlug = data['venue_detail']?['slug']?.toString() ?? venueName;
+                                      if (venueSlug.isNotEmpty) {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (context) => VenueDetailsScreen(
+                                              slug: venueSlug,
+                                              name: venueName,
+                                            ),
+                                          ),
+                                        );
+                                      }
+                                    },
+                                   child: Text(
+                                     venue,
+                                     style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.primary),
+                                   ),
+                                 ),
                                 const SizedBox(height: 4),
                                 Text(
                                   mapAddress,
@@ -562,16 +623,29 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                       // Embedded Map
                       if (_showMap && _mapController != null) ...[
                         const SizedBox(height: 16),
-                        Container(
-                          height: 250,
-                          width: double.infinity,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: AppColors.lightGrey),
-                          ),
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
-                            child: WebViewWidget(controller: _mapController!),
+                        GestureDetector(
+                          onTap: () => _openInMaps(mapAddress),
+                          child: Container(
+                            height: 250,
+                            width: double.infinity,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: AppColors.lightGrey),
+                            ),
+                            child: Stack(
+                              children: [
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: WebViewWidget(controller: _mapController!),
+                                ),
+                                // Overlay to make it clickable
+                                Positioned.fill(
+                                  child: Container(
+                                    color: Colors.transparent,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ],
@@ -609,9 +683,11 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text('Price', style: TextStyle(fontSize: 12, color: AppColors.darkGrey)),
-                        Text(
-                          formatPrice(data['payment_info']?['calculate_price'] ?? widget.price),
-                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        PriceDisplay(
+                          price: data['payment_info']?['calculate_price'] ?? widget.price,
+                          originalPrice: data['payment_info']?['original_price'] ?? data['payment_info']?['calculate_price'] ?? data['original_price'],
+                          isDiscounted: data['payment_info']?['early_bird_discount'] == 'enable' || data['early_bird_discount'] == 'enable',
+                          priceStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                         ),
                       ],
                     ),
@@ -670,6 +746,160 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildTabContent(String description) {
+    // Determine which tab is active
+    if (_selectedTabIndex == 0) {
+      // About Tab: Show description
+      if (description.isNotEmpty) {
+        return Text(
+          description.replaceAll(RegExp(r'<[^>]*>|&nbsp;'), ''),
+          style: const TextStyle(
+            fontSize: 13,
+            color: AppColors.darkGrey,
+            height: 1.4,
+          ),
+        );
+      } else {
+        return const Text(
+          'No description available.',
+          style: TextStyle(fontSize: 13, color: AppColors.darkGrey),
+        );
+      }
+    } else if (_selectedTabIndex == 1) {
+      // FAQ Tab
+      if (_faqs.isEmpty) {
+        return const Text(
+          'No FAQs available.',
+          style: TextStyle(fontSize: 13, color: AppColors.darkGrey),
+        );
+      }
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: _faqs.map((faq) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  faq['question'] ?? faq['title'] ?? 'Question',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.black,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  (faq['answer'] ?? faq['description'] ?? '').toString().replaceAll(RegExp(r'<[^>]*>|&nbsp;'), ''),
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: AppColors.darkGrey,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }).toList(),
+      );
+    } else if (_selectedTabIndex == 2 && _sponsors.isNotEmpty) {
+      // Sponsors Tab (only if visible)
+      if (_sponsors.isEmpty) {
+        return const Text(
+          'No sponsors available.',
+          style: TextStyle(fontSize: 13, color: AppColors.darkGrey),
+        );
+      }
+      return Wrap(
+        spacing: 12,
+        runSpacing: 12,
+        children: _sponsors.map((sponsor) {
+          final name = sponsor['name'] ?? sponsor['title'] ?? 'Sponsor';
+          final logo = resolvePublicUrl(sponsor['logo'] ?? sponsor['image'] ?? '');
+          return Container(
+            width: 100,
+            height: 100,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.lightGrey),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (logo != null && logo.isNotEmpty)
+                  Expanded(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: CustomImage(
+                        logo,
+                        fit: BoxFit.contain,
+                      ),
+                    ),
+                  ),
+                if (logo == null || logo.isEmpty)
+                  const Icon(Icons.business, size: 40, color: AppColors.grey),
+                Padding(
+                  padding: const EdgeInsets.all(4),
+                  child: Text(
+                    name,
+                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w500),
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }).toList(),
+      );
+    } else {
+      // Fallback to About tab if invalid index
+      if (description.isNotEmpty) {
+        return Text(
+          description.replaceAll(RegExp(r'<[^>]*>|&nbsp;'), ''),
+          style: const TextStyle(
+            fontSize: 13,
+            color: AppColors.darkGrey,
+            height: 1.4,
+          ),
+        );
+      }
+      return const SizedBox.shrink();
+    }
+  }
+
+  Future<void> _openInMaps(String address) async {
+    final encodedAddress = Uri.encodeComponent(address);
+    final Uri googleMapsUrl = Uri.parse("https://www.google.com/maps/search/?api=1&query=$encodedAddress");
+    final Uri appleMapsUrl = Uri.parse("https://maps.apple.com/?q=$encodedAddress");
+    final Uri androidGeoUrl = Uri.parse("geo:0,0?q=$encodedAddress");
+
+    try {
+      if (Platform.isAndroid) {
+        if (await canLaunchUrl(androidGeoUrl)) {
+          await launchUrl(androidGeoUrl);
+        } else {
+          await launchUrl(googleMapsUrl, mode: LaunchMode.externalApplication);
+        }
+      } else if (Platform.isIOS) {
+        if (await canLaunchUrl(appleMapsUrl)) {
+          await launchUrl(appleMapsUrl);
+        } else {
+          await launchUrl(googleMapsUrl, mode: LaunchMode.externalApplication);
+        }
+      } else {
+        await launchUrl(googleMapsUrl, mode: LaunchMode.externalApplication);
+      }
+    } catch (e) {
+      dev.log('Error launching maps: $e');
+      if (await canLaunchUrl(googleMapsUrl)) {
+        await launchUrl(googleMapsUrl, mode: LaunchMode.externalApplication);
+      }
+    }
   }
 
   Widget _buildPerformer(String name, String imageUrl, String slug) {

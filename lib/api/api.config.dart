@@ -13,15 +13,18 @@ class ApiConfig {
   static Uri get customerEvents => Uri.parse('$_customerBaseUrl/events');
   static Uri get customerMyTickets => Uri.parse('$_customerBaseUrl/my_tickets');
   static Uri get customerBookingDetails => Uri.parse('$_customerBaseUrl/booking_details');
+  static Uri get bookingComplate => Uri.parse('$_customerBaseUrl/booking_complate');
   static Uri get customerRecentTickets => Uri.parse('$_customerBaseUrl/my_tickets/recent');
   static Uri get customerPastTickets => Uri.parse('$_customerBaseUrl/my_tickets/past');
   static Uri get customerEventDetail => Uri.parse('$_customerBaseUrl/event_detail');
   static Uri get customerEventTicketDetails => Uri.parse('$_customerBaseUrl/event_ticket_details');
   static Uri get artists => Uri.parse('$_customerBaseUrl/artists');
   static Uri customerSearch(String query) => Uri.parse('$_customerBaseUrl/search?q=$query');
+  static Uri get getEventLocations => Uri.parse('$_customerBaseUrl/get_event_locations');
   static Uri getArtistDetail(String slug) {
     return Uri.parse('$_customerBaseUrl/artist/$slug');
   }
+  static Uri get venueDetail => Uri.parse('$_customerBaseUrl/venue_detail');
 
   /// Auth
   static Uri get login => Uri.parse('$_customerBaseUrl/login');

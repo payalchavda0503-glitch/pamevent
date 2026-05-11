@@ -41,15 +41,19 @@ class _TicketDetailsScreenState extends State<TicketDetailsScreen> {
   }
 
   Future<void> _fetchBookingDetails() async {
-    final bookingId = widget.ticket['booking_id']?.toString() ?? widget.ticket['order_id']?.toString() ?? '';
-    final id = widget.ticket['id']?.toString();
+    // Check both root and nested 'data' field for IDs
+    final ticketData = widget.ticket['data'] is Map ? widget.ticket['data'] : widget.ticket;
+    
+    final bookingId = ticketData['booking_id']?.toString() ?? ticketData['order_id']?.toString() ?? '';
+    final id = ticketData['id']?.toString();
+    
     if (bookingId.isEmpty) {
       setState(() => _isLoading = false);
       return;
     }
 
     final data = await ApiClient.customerBookingDetails(bookingId, id: id);
-    print('data------------$data');
+    print('data------------$data$id');
     if (mounted) {
       setState(() {
         _bookingDetails = data?['data'];
@@ -113,7 +117,7 @@ class _TicketDetailsScreenState extends State<TicketDetailsScreen> {
         ? imageUrl 
         : (resolvePublicUrl(imageUrl ?? eventImg?.toString()) ?? '');
     
-    print('Final Image URL being used: "$finalImageUrl"');
+   
     
     final date = event['event_start_date'] ?? ticketData['event_start_date'] ?? event['start_date'] ?? ticketData['start_date'] ?? 'N/A';
     final time = event['event_start_time'] ?? ticketData['event_start_time'] ?? event['start_time'] ?? ticketData['start_time'] ?? 'N/A';
@@ -123,7 +127,7 @@ class _TicketDetailsScreenState extends State<TicketDetailsScreen> {
     // Multiple tickets/QR codes handling: check for qr_codes (new API) or tickets (old)
     final List<dynamic> tickets = ticketData['qr_codes'] ?? ticketData['tickets'] ?? [];
     final int ticketCount = tickets.isNotEmpty ? tickets.length : 1;
-
+ print('Final Image URL being used: $tickets');
     // Get current ticket id based on the pager
     final currentVisibleTicket = tickets.isNotEmpty && _currentPage < tickets.length ? tickets[_currentPage] : ticketData;
     final currentOrderTicketId = currentVisibleTicket['ticket_id'] ?? currentVisibleTicket['id'] ?? 'N/A';

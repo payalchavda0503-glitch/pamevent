@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import '../../api/api.client.dart';
 import '../../helpers/app_colors.dart';
 import '../../helpers/app_state.dart';
+import '../../helpers/public_url.dart';
 import '../../helpers/extensions/context.extension.dart';
 import '../auth/login.screen.dart';
-import '../main_layout.dart';
 import '../shared/widgets/custom_button.widget.dart';
 import '../shared/widgets/custom_image.dart';
+import '../shared/moncash_payment.screen.dart';
+import './order_success.screen.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:flutter_stripe/flutter_stripe.dart';
 import 'dart:developer';
@@ -29,6 +31,10 @@ class _PaymentWebviewWidgetState extends State<PaymentWebviewWidget> {
       ..setNavigationDelegate(
         NavigationDelegate(
           onNavigationRequest: (request) {
+            final url = request.url.toLowerCase();
+            if (url.contains('success') || url.contains('completed') || url.contains('booking_complate')) {
+               debugPrint('Success detected in Stripe Modal: ${request.url}');
+            }
             return NavigationDecision.navigate;
           },
         ),
@@ -59,6 +65,110 @@ class PaymentWebviewScreen extends StatelessWidget {
   }
 }
 
+class _StripeModalContent extends StatefulWidget {
+  final String url;
+  final ScrollController scrollController;
+  final Map<String, dynamic>? eventDetail;
+  final int eventId;
+  final double grandTotal;
+
+  const _StripeModalContent({
+    required this.url,
+    required this.scrollController,
+    required this.eventDetail,
+    required this.eventId,
+    required this.grandTotal,
+  });
+
+  @override
+  State<_StripeModalContent> createState() => _StripeModalContentState();
+}
+
+class _StripeModalContentState extends State<_StripeModalContent> {
+  late final WebViewController _webViewController;
+
+  @override
+  void initState() {
+    super.initState();
+    _webViewController = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..enableZoom(true)
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onPageFinished: (url) {
+            final lowerUrl = url.toLowerCase();
+            if (lowerUrl.contains('success') || 
+                lowerUrl.contains('completed') || 
+                lowerUrl.contains('booking_complate')) {
+              Navigator.pop(context);
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => OrderSuccessScreen(
+                    orderId: widget.eventDetail?['id']?.toString() ?? widget.eventId.toString(),
+                    amount: widget.grandTotal,
+                    eventName: widget.eventDetail?['title'],
+                  ),
+                ),
+                (route) => false,
+              );
+            }
+          },
+          onNavigationRequest: (request) {
+            final url = request.url.toLowerCase();
+            if (url.contains('success') || 
+                url.contains('completed') || 
+                url.contains('booking_complate')) {
+              Navigator.pop(context);
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => OrderSuccessScreen(
+                    orderId: widget.eventDetail?['id']?.toString() ?? widget.eventId.toString(),
+                    amount: widget.grandTotal,
+                    eventName: widget.eventDetail?['title'],
+                  ),
+                ),
+                (route) => false,
+              );
+              return NavigationDecision.navigate;
+            }
+            return NavigationDecision.navigate;
+          },
+        ),
+      )
+      ..loadRequest(Uri.parse(widget.url));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.max,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: const BoxDecoration(
+            border: Border(bottom: BorderSide(color: Colors.black12)),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Secure Checkout', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: WebViewWidget(controller: _webViewController),
+        ),
+      ],
+    );
+  }
+}
+
 class CheckoutScreen extends StatefulWidget {
   final int eventId;
   final List<Map<String, dynamic>> selectedTickets;
@@ -80,14 +190,13 @@ class CheckoutScreen extends StatefulWidget {
 }
 
 class _CheckoutScreenState extends State<CheckoutScreen> {
-  String _selectedPaymentMethod = '4'; // Default to debit/credit card
+  String _moncashId = 'moncash';
+  String _stripeId = '4';
+  late String _selectedPaymentMethod;
   bool _acceptTerms = false;
   Map<String, dynamic>? _eventDetail;
   bool _isLoadingEvent = true;
   String _stripePublishableKey = '';
-  
-  String _stripeId = '4';
-  String _moncashId = 'moncash';
   
   double _couponDiscount = 0.0;
   double _referralDiscount = 0.0;
@@ -111,12 +220,23 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   void initState() {
     super.initState();
     _isLoggedIn = AppState.loggedIn;
+    _selectedPaymentMethod = _stripeId;
+    
+    if (_isLoggedIn && AppState.profile != null) {
+      _nameController.text = AppState.profile?.username ?? '';
+      _emailController.text = AppState.profile?.email ?? '';
+      _reEmailController.text = AppState.profile?.email ?? '';
+      _phoneController.text = AppState.profile?.phone ?? '';
+    }
+    
     _fetchEventDetail();
     _initCheckoutFlow();
   }
 
-  double get currentServiceFee => _selectedPaymentMethod == _stripeId ? 1.77 : 0.0;
-  double get currentProcessingFee => _selectedPaymentMethod == _stripeId ? 0.68 : 0.0;
+  bool get isFreeOrder => widget.totalAmount <= 0;
+
+  double get currentServiceFee => isFreeOrder ? 0.0 : 1.77;
+  double get currentProcessingFee => isFreeOrder ? 0.0 : 0.68;
 
   double get grandTotal {
     return widget.totalAmount + currentServiceFee + currentProcessingFee - _couponDiscount - _referralDiscount;
@@ -133,21 +253,28 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   }
 
   Future<void> _initCheckoutFlow() async {
+    print('Init Checkout Flow - Logged In: $_isLoggedIn');
     if (_isLoggedIn) {
        final profile = await ApiClient.fetchProfile();
+       print('Fetched Profile for Checkout: $profile');
        if (profile != null && mounted) {
           setState(() {
-            _nameController.text = profile['name'] ?? profile['username'] ?? '';
-            _emailController.text = profile['email'] ?? '';
-            _reEmailController.text = profile['email'] ?? '';
-            _phoneController.text = profile['phone'] ?? '';
+            if (profile['name'] != null || profile['username'] != null) {
+              _nameController.text = profile['name'] ?? profile['username'] ?? '';
+            }
+            if (profile['email'] != null) {
+              _emailController.text = profile['email'] ?? '';
+              _reEmailController.text = profile['email'] ?? '';
+            }
+            if (profile['phone'] != null && profile['phone'].toString().isNotEmpty) {
+              _phoneController.text = profile['phone'].toString();
+            }
           });
        }
     }
     
     await ApiClient.customerAddToCart(widget.eventId);
     
-    // Fetch gateways to extract the Stripe Publishable Key and the REAL IDs
     final gatewaysData = await ApiClient.customerGetPaymentGateways();
     print('GET GATEWAYS RESPONSE: $gatewaysData');
     if (mounted && gatewaysData != null && gatewaysData['data'] is List) {
@@ -167,8 +294,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                    _stripePublishableKey = match.group(0) ?? '';
               }
           }
-          if (title.contains('moncash')) {
+          if (title.contains('moncash') || title.contains('mon cash')) {
               _moncashId = gwId;
+              print('FOUND MONCASH GATEWAY ID: $_moncashId');
           }
        }
        
@@ -231,13 +359,36 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
   Future<void> _proceedToCheckout() async {
      print('START _proceedToCheckout');
-     print('Current Selected Payment Method: "$_selectedPaymentMethod"');
-     if (_nameController.text.isEmpty || _emailController.text.isEmpty || _phoneController.text.isEmpty) {
-         print('Validation failed: Attendee details missing');
-         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please fill all required attendee details (Name, Phone, Email)')));
+     print('Is Free Order: $isFreeOrder');
+     String fname = _nameController.text.trim();
+     String phone = _phoneController.text.trim();
+     String email = _emailController.text.trim();
+     String reEmail = _reEmailController.text.trim();
+
+     if (_isLoggedIn && AppState.profile != null) {
+        if (fname.isEmpty) fname = AppState.profile?.username ?? '';
+        if (email.isEmpty) email = AppState.profile?.email ?? '';
+        if (reEmail.isEmpty) reEmail = email;
+        if (phone.isEmpty) phone = AppState.profile?.phone ?? '';
+        
+        if (fname.isEmpty) fname = 'User';
+        if (phone.isEmpty) phone = '0000000000'; 
+     }
+
+     print('Final Attendee Data - Name: $fname, Email: $email, Phone: $phone');
+
+     if (fname.isEmpty || email.isEmpty || phone.isEmpty) {
+         String missing = '';
+         if (fname.isEmpty) missing += 'Name, ';
+         if (email.isEmpty) missing += 'Email, ';
+         if (phone.isEmpty) missing += 'Phone, ';
+         missing = missing.substring(0, missing.length - 2);
+         
+         print('Validation failed: Attendee details missing ($missing)');
+         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Please fill all required attendee details ($missing)')));
          return;
      }
-     if (_selectedPaymentMethod.isEmpty) {
+     if (!isFreeOrder && _selectedPaymentMethod.isEmpty) {
          print('Validation failed: Payment method is empty literal string');
          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select a payment method')));
          return;
@@ -247,17 +398,22 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
          return;
      }
 
+     double finalGrandTotal = grandTotal;
+     double finalSubTotal = widget.totalAmount;
+
+     String finalGateway = isFreeOrder ? 'free' : (_selectedPaymentMethod == _stripeId ? 'stripe' : 'moncash');
+
      final map = <String, dynamic>{
          'event_id': widget.eventId.toString(),
          'event_name': _eventDetail?['title'] ?? 'Event',
-         'fname': _nameController.text.trim(),
+         'fname': fname,
          'country_code': '+91', 
-         'phone': _phoneController.text.trim(),
-         'email': _emailController.text.trim(),
-         're_enter_email': _reEmailController.text.trim(),
-         'gateway': _selectedPaymentMethod, // Correct derived dynamic ID ensures backend accepts it
+         'phone': phone,
+         'email': email,
+         're_enter_email': reEmail,
+         'gateway': finalGateway,
          'agree_org_policy': '1',
-         'total': widget.totalAmount.toStringAsFixed(2),
+         'total': finalSubTotal.toStringAsFixed(2),
          'quantity': widget.selectedTickets.fold<int>(0, (sum, e) => sum + (e['count'] as int)).toString(),
          'processing_fee': currentProcessingFee.toStringAsFixed(2),
          'ticket_fees': currentServiceFee.toStringAsFixed(2),
@@ -271,8 +427,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
          'tax': '0',
          'discount': '0',
          'total_early_bird_dicount': '0',
-         'sub_total': widget.totalAmount.toStringAsFixed(2),
-         'grand_total': grandTotal.toStringAsFixed(2),
+         'sub_total': finalSubTotal.toStringAsFixed(2),
+         'grand_total': finalGrandTotal.toStringAsFixed(2),
      };
 
      for (int i = 0; i < widget.selectedTickets.length; i++) {
@@ -294,133 +450,244 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
      print('PAYLOAD SENDING TO CHECKOUT: $map');
 
-     final res = await ApiClient.customerCheckout(map);
-     print('CHECKOUT RESPONSE: $res');
-     if (res != null) {
-        final targetUrl = res['url'] ?? res['redirect_url']; 
-        final clientSecret = res['client_secret'];
+     if (isFreeOrder) {
+       final res = await ApiClient.customerCheckout(map);
+       print('CHECKOUT RESPONSE (FREE ORDER): $res');
+       
+       if (res != null && res['status'] == 100) {
+         final orderId = res['data']?['order_id']?.toString() ?? widget.eventId.toString();
+         if (mounted) {
+           Navigator.pushAndRemoveUntil(
+             context,
+             MaterialPageRoute(
+               builder: (_) => OrderSuccessScreen(
+                 orderId: orderId,
+                 amount: finalGrandTotal,
+                 eventName: _eventDetail?['title'],
+                 bookingData: res['data'],
+               ),
+             ),
+             (route) => false,
+           );
+         }
+       }
+     } else {
+       final res = await ApiClient.customerCheckout(map);
+       print('CHECKOUT RESPONSE: $res');
+       print('Selected Payment Method: $_selectedPaymentMethod, Stripe ID: $_stripeId');
+       print('Response keys: ${res?.keys.toList()}');
 
-        if (_selectedPaymentMethod == _stripeId) {
-            if (clientSecret != null && clientSecret.toString().isNotEmpty) {
-               // Execute Flutter Stripe Payment Sheet
-               try {
-                  if (_stripePublishableKey.isNotEmpty) {
-                      Stripe.publishableKey = _stripePublishableKey;
-                  } else {
-                      Stripe.publishableKey = 'YOUR_STRIPE_PUBLISHABLE_KEY';
-                  }
-                  
-                  await Stripe.instance.initPaymentSheet(
-                    paymentSheetParameters: SetupPaymentSheetParameters(
-                      paymentIntentClientSecret: clientSecret.toString(),
-                      merchantDisplayName: 'Pamevent',
-                      style: ThemeMode.light,
-                      billingDetails: BillingDetails(
-                        name: _nameController.text.trim(),
-                        email: _emailController.text.trim(),
-                        phone: _phoneController.text.trim(),
+       if (res != null) {
+          final paymentData = res['data'] is Map ? res['data'] : res;
+          print('Payment Data: $paymentData');
+          
+          final targetUrl = paymentData['url'] ?? paymentData['redirect_url']; 
+          final clientSecret = paymentData['client_secret'];
+          final orderId = paymentData['order_id']?.toString() ?? widget.eventId.toString();
+
+          if (_selectedPaymentMethod == _stripeId) {
+              print('Processing STRIPE payment');
+              print('Client Secret: ${clientSecret?.toString().substring(0, 20)}...');
+              if (clientSecret != null && clientSecret.toString().isNotEmpty) {
+                 try {
+                    if (_stripePublishableKey.isNotEmpty) {
+                        Stripe.publishableKey = _stripePublishableKey;
+                        print('Using Stripe Publishable Key: $_stripePublishableKey');
+                    } else {
+                        Stripe.publishableKey = 'YOUR_STRIPE_PUBLISHABLE_KEY';
+                        print('WARNING: Using dummy Stripe Publishable Key!');
+                    }
+                    
+                    print('Initializing Payment Sheet...');
+                    await Stripe.instance.initPaymentSheet(
+                      paymentSheetParameters: SetupPaymentSheetParameters(
+                        paymentIntentClientSecret: clientSecret.toString(),
+                        merchantDisplayName: 'Pamevent',
+                        style: ThemeMode.light,
+                        billingDetails: BillingDetails(
+                          name: fname,
+                          email: email,
+                          phone: phone,
+                        ),
+                        allowsDelayedPaymentMethods: true,
                       ),
-                    ),
-                  );
-                  
-                  await Stripe.instance.presentPaymentSheet();
-                  if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Payment Successful!')));
-                      // Redirect to Home Page
-                      Navigator.pushAndRemoveUntil(
-                        context, 
-                        MaterialPageRoute(builder: (_) => const MainLayout(initialIndex: 0)), 
-                        (route) => false
-                      );
-                  }
-               } on StripeException catch (e) {
-                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Payment failed: ${e.error.localizedMessage}')));
-               } catch (e) {
-                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
-               }
-            } else if (targetUrl != null && targetUrl.toString().startsWith('http')) {
-               // Fallback: Webview Modal
-               if (mounted) _showStripeModal(targetUrl.toString());
-            } else {
-               if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Order Placed Successfully! (No Client Secret or Web URL returned)')));
-                  // Redirect to Home Page
-                  Navigator.pushAndRemoveUntil(
-                    context, 
-                    MaterialPageRoute(builder: (_) => const MainLayout(initialIndex: 0)), 
-                    (route) => false
-                  );
-               }
-            }
-        } else {
-           // Other Gateway (Moncash)
-           if (targetUrl != null && targetUrl.toString().startsWith('http')) {
-              if (mounted) {
-                  await Navigator.push(context, MaterialPageRoute(builder: (_) => PaymentWebviewScreen(url: targetUrl.toString())));
-                  // After returning from Webview, we assume success or user completed the flow
-                  if (mounted) {
-                      Navigator.pushAndRemoveUntil(
-                        context, 
-                        MaterialPageRoute(builder: (_) => const MainLayout(initialIndex: 0)), 
-                        (route) => false
-                      );
-                  }
+                    );
+                    
+                    print('Presenting Payment Sheet...');
+                    await Stripe.instance.presentPaymentSheet();
+                    print('Payment Sheet completed successfully!');
+                    if (mounted) {
+                        debugPrint('Stripe Payment Successful, redirecting to OrderSuccessScreen...');
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Payment Successful!')));
+                        Navigator.pushAndRemoveUntil(
+                          context, 
+                          MaterialPageRoute(
+                            builder: (_) => OrderSuccessScreen(
+                              orderId: orderId,
+                              amount: finalGrandTotal,
+                              eventName: _eventDetail?['title'],
+                              bookingData: paymentData,
+                            ),
+                          ), 
+                          (route) => false
+                        );
+                    }
+                 } on StripeException catch (e) {
+                    print('Stripe Exception: ${e.error}');
+                    print('Stripe Exception code: ${e.error.code}');
+                    print('Stripe Exception message: ${e.error.localizedMessage}');
+                    if (mounted) {
+                      if (e.error.code == FailureCode.Canceled) {
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Payment cancelled')));
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Payment failed: ${e.error.localizedMessage}')));
+                      }
+                    }
+                 } catch (e, stack) {
+                    print('General Error during payment: $e');
+                    print('Stack trace: $stack');
+                    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+                 }
+              } else if (targetUrl != null && targetUrl.toString().startsWith('http')) {
+                 print('Using WebView fallback for Stripe');
+                 if (mounted) _showStripeModal(targetUrl.toString());
+              } else {
+                 if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not initialize payment. Please try again.')));
+                 }
               }
-           } else {
-              if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Order Placed Successfully!')));
-                  // Redirect to Home Page
-                  Navigator.pushAndRemoveUntil(
-                    context, 
-                    MaterialPageRoute(builder: (_) => const MainLayout(initialIndex: 0)), 
-                    (route) => false
-                  );
-              }
-           }
-        }
+          } else {
+             print('Processing MONCASH payment');
+             final String? paymentUrl = (paymentData['url'] ?? paymentData['redirect_url'])?.toString();
+             print('MONCASH REDIRECT URL DETECTED: $paymentUrl');
+             
+             if (paymentUrl != null && paymentUrl.startsWith('http')) {
+                if (mounted) {
+                    final paymentSuccessful = await Navigator.push<bool>(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => MonCashPaymentScreen(
+                          paymentUrl: paymentUrl,
+                          orderId: orderId,
+                          amount: finalGrandTotal,
+                          customerName: fname,
+                          customerEmail: email,
+                        ),
+                      ),
+                    );
+                    if (mounted && paymentSuccessful == true) {
+                        Navigator.pushAndRemoveUntil(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => OrderSuccessScreen(
+                              orderId: orderId,
+                              amount: finalGrandTotal,
+                              eventName: _eventDetail?['title'],
+                              bookingData: paymentData,
+                            ),
+                          ),
+                          (route) => false,
+                        );
+                    }
+                }
+             } else {
+                if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not get payment URL. Please try again.')));
+                }
+             }
+          }
+       }
      }
   }
 
   void _showStripeModal(String url) {
-    showModalBottomSheet(
+    showDialog(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
+      barrierDismissible: false,
       builder: (context) {
-        return Container(
-          height: MediaQuery.of(context).size.height * 0.9, // 90% height for modal feel
-          decoration: const BoxDecoration(
+        return Dialog(
+          insetPadding: EdgeInsets.zero,
+          child: Container(
+            width: double.infinity,
+            height: double.infinity,
             color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-          child: Column(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                decoration: const BoxDecoration(
-                  border: Border(bottom: BorderSide(color: Colors.black12)),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('Secure Checkout', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                    IconButton(
-                      icon: const Icon(Icons.close),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: ClipRRect(
-                  borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
-                  child: PaymentWebviewWidget(url: url),
-                )
-              ),
-            ],
+            child: _StripeModalContent(
+              url: url,
+              scrollController: ScrollController(),
+              eventDetail: _eventDetail,
+              eventId: widget.eventId,
+              grandTotal: grandTotal,
+            ),
           ),
         );
       },
+    );
+  }
+
+  Widget _buildEventInfo() {
+    final title = _eventDetail?['title'] ?? _eventDetail?['event_name'] ?? 'Event';
+    final imageUrl = _eventDetail?['image'] ?? _eventDetail?['event_img'] ?? _eventDetail?['event_thumbnail'] ?? _eventDetail?['thumbnail'] ?? '';
+    final startDate = _eventDetail?['start_date'] ?? _eventDetail?['event_date'] ?? '';
+    final startTime = _eventDetail?['start_time'] ?? _eventDetail?['event_start_time'] ?? '';
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: CustomImage(
+              resolvePublicUrl(imageUrl) ?? imageUrl,
+              width: 80,
+              height: 80,
+              fit: BoxFit.cover,
+              whenEmpty: Container(
+                width: 80,
+                height: 80,
+                color: Colors.grey[200],
+                child: const Icon(Icons.image, color: Colors.grey),
+              ),
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 4),
+                if (startDate.isNotEmpty || startTime.isNotEmpty)
+                  Text(
+                    '$startDate $startTime'.trim(),
+                    style: TextStyle(
+                      color: Colors.grey[600],
+                      fontSize: 14,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -435,24 +702,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       backgroundColor: const Color(0xFFF8F9FA),
       appBar: AppBar(
         title: const Text('Checkout', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
-        backgroundColor: const Color(0xFF14103D), // matching image header color
+        backgroundColor: const Color(0xFF14103D),
         iconTheme: const IconThemeData(color: Colors.white),
         centerTitle: true,
-      ),
-      bottomNavigationBar: SafeArea(
-        child: Container(
-          padding: const EdgeInsets.all(16.0),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, -2))],
-          ),
-          child: CustomButton(
-            title: 'Proceed to Pay',
-            onTap: () {
-              _proceedToCheckout();
-            },
-          ),
-        ),
       ),
       body: SafeArea(
         child: LayoutBuilder(
@@ -558,10 +810,14 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             }
           ),
         ] else ...[
+           Text(
+             'Welcome back, ${_nameController.text.isNotEmpty ? _nameController.text : (AppState.profile?.username ?? 'User')}! Your details are pre-filled.',
+             style: const TextStyle(color: Colors.grey, fontSize: 14),
+           ),
            const SizedBox(height: 8),
            Text(
-             'Welcome back, ${_nameController.text}! Your details are pre-filled.',
-             style: const TextStyle(color: Colors.grey, fontSize: 14),
+             'Name: ${_nameController.text.isNotEmpty ? _nameController.text : (AppState.profile?.username ?? 'User')}\nEmail: ${_emailController.text.isNotEmpty ? _emailController.text : (AppState.profile?.email ?? 'N/A')}\nPhone: ${_phoneController.text.isNotEmpty ? _phoneController.text : (AppState.profile?.phone ?? '0000000000')}',
+             style: TextStyle(color: Colors.grey.shade600, fontSize: 13, height: 1.5),
            ),
         ],
         
@@ -589,15 +845,17 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             ],
           ),
         ),
-        const SizedBox(height: 32),
-        const Text('Payment Method', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 16),
-        ..._hardcodedGateways.map((g) {
-           return Padding(
-             padding: const EdgeInsets.only(bottom: 12.0),
-             child: _buildPaymentOption(g['title'], g['id'], g['icon'] as IconData),
-           );
-        }).toList(),
+        if (!isFreeOrder) ...[
+          const SizedBox(height: 32),
+          const Text('Payment Method', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 16),
+          ..._hardcodedGateways.map((g) {
+             return Padding(
+               padding: const EdgeInsets.only(bottom: 12.0),
+               child: _buildPaymentOption(g['title'], g['id'], g['icon'] as IconData),
+             );
+          }).toList(),
+        ],
         const SizedBox(height: 24),
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -753,6 +1011,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             ),
           ],
         ),
+        const SizedBox(height: 32),
+        CustomButton(
+          title: isFreeOrder ? 'Confirm Order' : 'Proceed to Pay',
+          onTap: () {
+            _proceedToCheckout();
+          },
+        ),
       ],
     );
   }
@@ -820,72 +1085,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                  ),
                ) : null,
             ),
-            const SizedBox(width: 16),
-            Icon(icon, color: Colors.grey.shade600),
-            const SizedBox(width: 8),
-            Text(title, style: const TextStyle(fontSize: 14)),
+            const SizedBox(width: 12),
+            Icon(icon, color: isSelected ? AppColors.primary : Colors.grey),
+            const SizedBox(width: 12),
+            Text(title, style: TextStyle(color: isSelected ? AppColors.primary : Colors.black87, fontWeight: FontWeight.w500)),
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildEventInfo() {
-    final title = _eventDetail!['title'] ?? 'Event';
-    final imageUrl = _eventDetail!['event_img'] ?? _eventDetail!['event_thumbnail'] ?? '';
-    final venue = _eventDetail!['venue'] ?? '';
-    final startDate = _eventDetail!['start_date'] ?? '';
-    final startTime = _eventDetail!['start_time'] ?? '';
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: CustomImage(
-            imageUrl,
-            width: 80,
-            height: 80,
-            fit: BoxFit.cover,
-            whenEmpty: Container(
-               width: 80,
-               height: 80,
-               color: Colors.grey.shade300,
-               child: const Icon(Icons.image_not_supported, color: Colors.grey),
-            ),
-          ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.primary),
-              ),
-              const SizedBox(height: 8),
-              if (startDate.isNotEmpty)
-                Row(
-                  children: [
-                    const Icon(Icons.calendar_today, size: 12, color: AppColors.primary),
-                    const SizedBox(width: 4),
-                    Text('$startDate $startTime', style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
-                  ],
-                ),
-              const SizedBox(height: 4),
-              if (venue.isNotEmpty)
-                Row(
-                  children: [
-                    const Icon(Icons.location_on, size: 12, color: AppColors.primary),
-                    const SizedBox(width: 4),
-                    Expanded(child: Text(venue, style: TextStyle(fontSize: 12, color: Colors.grey.shade700))),
-                  ],
-                ),
-            ],
-          ),
-        ),
-      ],
     );
   }
 }

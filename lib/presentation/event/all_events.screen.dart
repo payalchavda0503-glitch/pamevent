@@ -2,13 +2,17 @@ import 'package:flutter/material.dart';
 import '../../api/api.client.dart';
 import '../../helpers/app_colors.dart';
 import '../../helpers/public_url.dart';
+import '../../helpers/utils.dart';
 import '../shared/widgets/custom_image.dart';
 import '../shared/widgets/filter_bottom_sheet.widget.dart';
+import '../shared/widgets/price_display.widget.dart';
 import 'event_details.screen.dart';
+import '../../helpers/app_state.dart';
 
 class AllEventsScreen extends StatefulWidget {
   final String? initialCategory;
-  const AllEventsScreen({super.key, this.initialCategory});
+  final String? initialVenue;
+  const AllEventsScreen({super.key, this.initialCategory, this.initialVenue});
 
   @override
   State<AllEventsScreen> createState() => _AllEventsScreenState();
@@ -25,8 +29,15 @@ class _AllEventsScreenState extends State<AllEventsScreen> {
   @override
   void initState() {
     super.initState();
+    _activeFilters = {};
     if (widget.initialCategory != null) {
-      _activeFilters = {'category': widget.initialCategory};
+      _activeFilters!['category'] = widget.initialCategory;
+    }
+    if (widget.initialVenue != null) {
+      _activeFilters!['venue'] = widget.initialVenue;
+    }
+    if (_activeFilters!.isEmpty) {
+      _activeFilters = null;
     }
     _fetchEvents();
     _scrollController.addListener(() {
@@ -50,6 +61,7 @@ class _AllEventsScreenState extends State<AllEventsScreen> {
         dates: _activeFilters?['dates'],
         minPrice: _activeFilters?['min'],
         maxPrice: _activeFilters?['max'],
+        filterVenue:  AppState.selectedLocation.value,
       );
       if (data != null && data['events'] != null) {
         final newEvents = data['events']['data'] as List;
@@ -235,18 +247,23 @@ class _AllEventsScreenState extends State<AllEventsScreen> {
         ? (event['organizer']['username'] ?? 'Unknown')
         : (event['organizer_name'] ?? 'Unknown');
     
-    final date = event['event_date'] != null 
-        ? '${event['event_date']} / ${event['event_start_time'] ?? ''}'
-        : (event['start_date'] != null 
-            ? '${event['start_date']} / ${event['start_time'] ?? ''}'
-            : '');
+    final date = (() {
+      String d = event['event_date']?.toString() ?? event['start_date']?.toString() ?? '';
+      String t = event['event_start_time']?.toString() ?? event['start_time']?.toString() ?? '';
+      
+      if (d.isEmpty && event['date_type'] == 'multiple' && event['multiple_dates'] is List && (event['multiple_dates'] as List).isNotEmpty) {
+        final firstDate = (event['multiple_dates'] as List).first;
+        d = firstDate['event_date']?.toString() ?? firstDate['start_date']?.toString() ?? '';
+        t = firstDate['event_start_time']?.toString() ?? firstDate['start_time']?.toString() ?? '';
+      }
+      String formattedDate = formatShortEventDate(d);
+      return formattedDate.isNotEmpty ? '$formattedDate / $t' : '';
+    })();
             
     final priceRaw = event['payment_info'] is Map 
         ? (event['payment_info']['calculate_price'] ?? event['payment_info']['original_price'])
-        : (event['price'] ?? event['event_price'] ?? event['ticket_price'] ?? event['min_price'] ?? event['starting_price']);
+        : (event['final_price'] ?? event['price'] ?? event['event_price'] ?? event['ticket_price'] ?? event['min_price'] ?? event['starting_price']);
         
-    final price = formatPrice(priceRaw);
-    
     final status = event['status_label'];
     final statusColor = event['status_color'] != null
         ? Color(int.parse(event['status_color'].replaceAll('#', '0xFF')))
@@ -261,7 +278,7 @@ class _AllEventsScreenState extends State<AllEventsScreen> {
               eventId: eventId,
               title: title,
               imageUrl: imageUrl,
-              price: price,
+              price: formatPrice(priceRaw),
             ),
           ),
         );
@@ -334,9 +351,14 @@ class _AllEventsScreenState extends State<AllEventsScreen> {
                     style: const TextStyle(fontSize: 13, color: AppColors.darkGrey),
                   ),
                   const SizedBox(height: 4),
-                  Text(
-                    price,
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                  PriceDisplay(
+                    price: priceRaw,
+                    originalPrice: (event is Map && event['payment_info'] is Map) 
+                        ? (event['payment_info']['original_price'] ?? event['payment_info']['calculate_price']) 
+                        : (event['price'] ?? event['original_price'] ?? event['event_price']),
+                    isDiscounted: (event is Map && event['payment_info'] is Map && event['payment_info']['early_bird_discount'] == 'enable') || 
+                                 (event is Map && event['early_bird_discount'] == 'enable'),
+                    priceStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                   ),
                   if (status != null) ...[
                     const SizedBox(height: 2),

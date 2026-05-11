@@ -8,6 +8,7 @@ import '../auth/login.screen.dart';
 import '../shared/widgets/custom_button.widget.dart';
 import '../shared/widgets/custom_image.dart';
 import '../../helpers/public_url.dart';
+import '../../helpers/utils.dart';
 
 class MyTicketsListScreen extends StatefulWidget {
   final VoidCallback? onMenuTap;
@@ -230,16 +231,22 @@ class _MyTicketsListScreenState extends State<MyTicketsListScreen> {
                             // Title parsing: check for event_title (new API) or title
                             final title = item['event_title'] ?? event['event_title'] ?? event['title'] ?? item['title'] ?? item['event_name'] ?? 'Ticket';
                             
-                            final date = item['event_start_date'] ?? event['start_date'] ?? item['start_date'] ?? 'N/A';
-                            final time = item['event_start_time'] ?? event['start_time'] ?? item['start_time'] ?? 'N/A';
+                            final date = item['event_start_date'] ?? event['start_date'] ?? item['start_date'] ?? '';
+                            final time = item['event_start_time'] ?? event['start_time'] ?? item['start_time'] ?? '';
                             final location = item['event_location'] ?? event['venue'] ?? item['venue'] ?? 'N/A';
+                            
+                            final dateTime = (() {
+                              String d = item['event_start_date']?.toString() ?? event['start_date'] ?? item['start_date'] ?? '';
+                              String t = item['event_start_time']?.toString() ?? event['start_time'] ?? item['start_time'] ?? '';
+                              String formattedDate = formatShortEventDate(d);
+                              return formattedDate.isNotEmpty ? '$formattedDate / $t' : '';
+                            })();
                             
                             return _buildTicketListItem(
                               item: item,
                               imageUrl: imageUrl ?? '',
                               title: title,
-                              date: date,
-                              time: time,
+                              dateTime: dateTime,
                               location: location,
                               isUpcoming: _selectedTabIndex == 0,
                             );
@@ -284,8 +291,7 @@ class _MyTicketsListScreenState extends State<MyTicketsListScreen> {
     required Map<String, dynamic> item,
     required String imageUrl,
     required String title,
-    required String date,
-    required String time,
+    required String dateTime,
     required String location,
     required bool isUpcoming,
   }) {
@@ -343,20 +349,11 @@ class _MyTicketsListScreenState extends State<MyTicketsListScreen> {
                     ],
                   ),
                   const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      const Icon(Icons.calendar_today, size: 12, color: AppColors.primary),
-                      const SizedBox(width: 4),
-                      Text(date, style: const TextStyle(fontSize: 11, color: AppColors.darkGrey)),
-                      const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 4),
-                        child: Text('|', style: TextStyle(color: AppColors.grey)),
-                      ),
-                      const Icon(Icons.access_time, size: 12, color: AppColors.primary),
-                      const SizedBox(width: 4),
-                      Text(time, style: const TextStyle(fontSize: 11, color: AppColors.darkGrey)),
-                    ],
-                  ),
+                  if (dateTime.isNotEmpty)
+                    Text(
+                      dateTime,
+                      style: const TextStyle(fontSize: 11, color: AppColors.darkGrey),
+                    ),
                   const SizedBox(height: 2),
                   Row(
                     children: [

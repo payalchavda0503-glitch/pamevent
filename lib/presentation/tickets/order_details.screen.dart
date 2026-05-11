@@ -155,14 +155,14 @@ class OrderDetailsScreen extends StatelessWidget {
                 const SizedBox(height: 8),
                 Row(
                    children: [
-                      const Text('Payment Status : ', style: TextStyle(fontSize: 13, color: AppColors.darkGrey)),
+                      const Text('Payment Status : ', style: TextStyle(fontSize: 15, color: AppColors.black, fontWeight: FontWeight.w500)),
                       Container(
                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                          decoration: BoxDecoration(
                             color: paymentStatus.toString().toLowerCase() == 'completed' ? Colors.green : AppColors.primary,
                             borderRadius: BorderRadius.circular(4),
                          ),
-                         child: Text(paymentStatus, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                         child: Text(paymentStatus, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
                       ),
                    ],
                 ),
@@ -187,15 +187,17 @@ class OrderDetailsScreen extends StatelessWidget {
           TextSpan(
             text: '$label : ',
             style: const TextStyle(
-              fontSize: 13,
-              color: AppColors.darkGrey,
+              fontSize: 15,
+              color: AppColors.black,
+              fontWeight: FontWeight.w500,
             ),
             children: [
               TextSpan(
                 text: value,
                 style: const TextStyle(
-                  fontWeight: FontWeight.w400,
-                  color: AppColors.grey,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
+                  color: AppColors.black,
                 ),
               ),
             ],

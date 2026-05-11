@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../api/api.client.dart';
 import '../../helpers/app_colors.dart';
 import '../shared/widgets/custom_button.widget.dart';
+import '../shared/widgets/price_display.widget.dart';
 import 'checkout.screen.dart';
 
 class SelectTicketsScreen extends StatefulWidget {
@@ -148,30 +149,68 @@ class _SelectTicketsScreenState extends State<SelectTicketsScreen> {
                       style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: AppColors.lightGrey),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<dynamic>(
-                          isExpanded: true,
-                          value: _selectedDate,
-                          items: _eventDates.map((date) {
-                            // API format can be {start_date_time: ..., timezone: ...} or {startDateTime: ...}
-                            final dateStr = date['start_date_time']?.toString() ?? date['startDateTime']?.toString() ?? 'Date';
-                            final timezone = date['timezone']?.toString() ?? '';
-                            return DropdownMenuItem<dynamic>(
-                              value: date,
-                              child: Text('$dateStr ${timezone.isNotEmpty ? "($timezone)" : ""}'),
-                            );
-                          }).toList(),
-                          onChanged: (val) {
-                            setState(() => _selectedDate = val);
-                          },
-                        ),
-                      ),
+                    Column(
+                      children: _eventDates.map((date) {
+                        final dateStr = date['start_date_time']?.toString() ??
+                            date['startDateTime']?.toString() ??
+                            'Date';
+                        final isSelected = _selectedDate == date;
+                        
+                        return GestureDetector(
+                          onTap: () => _eventDates.length > 1 ? setState(() => _selectedDate = date) : null,
+                          child: Container(
+                            width: double.infinity,
+                            margin: const EdgeInsets.only(bottom: 6),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: isSelected ? AppColors.primary.withOpacity(0.1) : Colors.white,
+                              border: Border.all(
+                                color: isSelected ? AppColors.primary : AppColors.lightGrey,
+                                width: 1.2,
+                              ),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 16,
+                                  height: 16,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: isSelected ? AppColors.primary : AppColors.grey,
+                                      width: 1.8,
+                                    ),
+                                  ),
+                                  child: isSelected
+                                      ? Center(
+                                          child: Container(
+                                            width: 8,
+                                            height: 8,
+                                            decoration: const BoxDecoration(
+                                              shape: BoxShape.circle,
+                                              color: AppColors.primary,
+                                            ),
+                                          ),
+                                        )
+                                      : null,
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    dateStr,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: isSelected ? AppColors.primary : AppColors.black,
+                                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }).toList(),
                     ),
                     const SizedBox(height: 16),
                     const Divider(color: AppColors.lightGrey),
@@ -311,6 +350,8 @@ class _SelectTicketsScreenState extends State<SelectTicketsScreen> {
     required int count,
     required Function(int) onCountChanged,
   }) {
+    final ValueNotifier<bool> isExpanded = ValueNotifier<bool>(false);
+    
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -372,9 +413,33 @@ class _SelectTicketsScreenState extends State<SelectTicketsScreen> {
                     ),
                     if (description.isNotEmpty) ...[
                       const SizedBox(height: 6),
-                      Text(
-                        description,
-                        style: const TextStyle(fontSize: 13, color: AppColors.grey),
+                      ValueListenableBuilder<bool>(
+                        valueListenable: isExpanded,
+                        builder: (context, expanded, child) {
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                description,
+                                style: const TextStyle(fontSize: 13, color: AppColors.grey),
+                                maxLines: expanded ? null : 2,
+                                overflow: expanded ? TextOverflow.visible : TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 4),
+                              GestureDetector(
+                                onTap: () => isExpanded.value = !isExpanded.value,
+                                child: Text(
+                                  expanded ? 'Read less' : 'Read more',
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    color: AppColors.primary,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          );
+                        },
                       ),
                     ],
                   ],

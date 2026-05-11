@@ -12,18 +12,39 @@ String? resolvePublicUrl(String? raw) {
 }
 
 /// Formats a raw price value into a user-friendly string (e.g., "$20.00").
-String formatPrice(dynamic price) {
+/// [extractOriginal] if true, extracts the value inside <del> tags if present.
+String formatPrice(dynamic price, {bool extractOriginal = false}) {
   if (price == null || price.toString().isEmpty) return 'Free';
-  final pStr = price.toString().toLowerCase().trim();
+  
+  String rawPrice = price.toString();
+  
+  // Handle HTML tags like <del>$60.00</del>
+  if (rawPrice.contains('<del>')) {
+    if (extractOriginal) {
+      // Extract part inside <del> tags
+      final match = RegExp(r'<del>(.*?)</del>').firstMatch(rawPrice);
+      if (match != null) {
+        rawPrice = match.group(1) ?? rawPrice;
+      }
+    } else {
+      // Extract part BEFORE <del> tag
+      rawPrice = rawPrice.split('<del>').first.trim();
+    }
+  }
+  
+  // Strip any remaining HTML tags
+  String cleanPrice = rawPrice.replaceAll(RegExp(r'<[^>]*>'), '').trim();
+  
+  final pStr = cleanPrice.toLowerCase();
   if (pStr == 'free' || pStr == '0' || pStr == '0.00' || pStr == '0.0') return 'Free';
   
-  // If already formatted with $, return as is
-  if (pStr.contains('\$')) return price.toString();
+  // If already formatted with $, return as is (but cleaned of tags)
+  if (pStr.contains('\$')) return cleanPrice;
   
   // Extract numeric value
   final numericPart = pStr.replaceAll(RegExp(r'[^0-9.]'), '');
   final val = double.tryParse(numericPart);
-  if (val == null) return price.toString();
+  if (val == null) return cleanPrice;
   
   return '\$${val.toStringAsFixed(2)}';
 }

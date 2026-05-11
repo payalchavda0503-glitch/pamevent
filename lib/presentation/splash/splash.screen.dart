@@ -6,6 +6,7 @@ import '../../helpers/app_state.dart';
 import '../../helpers/extensions/context.extension.dart';
 import '../../helpers/utils.dart';
 import '../../helpers/version.dart';
+import '../../services/location.service.dart';
 import '../auth/login.screen.dart';
 import '../main_layout.dart';
 import '../shared/widgets/custom_image.dart';
@@ -25,6 +26,7 @@ class _SplashScreenState extends State<SplashScreen> {
       await AppVersion.setVersion();
       ApiClient.setVersionHeader(AppVersion.buildNumber);
       await fetchSettings();
+      await LocationService.initializeLocation();
       await Future.delayed(const Duration(seconds: 2));
       const dest = MainLayout();
       if (mounted) context.replace(dest);

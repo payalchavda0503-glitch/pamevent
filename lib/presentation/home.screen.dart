@@ -3,8 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../api/api.client.dart';
 import '../helpers/app_colors.dart';
+import '../helpers/app_state.dart';
 import '../helpers/public_url.dart';
+import '../helpers/utils.dart';
 import '../services/toast.service.dart';
+import 'shared/widgets/price_display.widget.dart';
 import 'event/event_details.screen.dart';
 import 'event/all_events.screen.dart';
 import 'search/search_results.screen.dart';
@@ -12,6 +15,7 @@ import 'search/artist_details.screen.dart';
 import 'shared/widgets/custom_image.dart';
 import 'shared/widgets/custom_text_field.widget.dart';
 import 'shared/widgets/filter_bottom_sheet.widget.dart';
+import 'location/select_location.screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final VoidCallback? onMenuTap;
@@ -29,37 +33,85 @@ class _HomeScreenState extends State<HomeScreen> {
   List<dynamic> _categories = [];
   Map<String, dynamic>? _activeFilters;
 
+  String? _lastKnownLocation;
+
   @override
   void initState() {
     super.initState();
-    _fetchHomeData();
+    print('=== HOMESCREEN: initState() called ===');
+    _lastKnownLocation = AppState.selectedLocation.value;
+    print('=== HOMESCREEN: _lastKnownLocation initialized to: $_lastKnownLocation ===');
+    print('=== HOMESCREEN: AppState.selectedLocation.value: ${AppState.selectedLocation.value} ===');
+    
+    // Fetch home data right away if we already have a location
+    if (_lastKnownLocation != null) {
+      print('=== HOMESCREEN: Fetching home data with location ===');
+      _fetchHomeData();
+    } else {
+      // Fetch home data without location filter first
+      print('=== HOMESCREEN: Fetching home data without location ===');
+      _fetchHomeData();
+    }
+    
+    print('=== HOMESCREEN: Adding listener to AppState.selectedLocation ===');
+    AppState.selectedLocation.addListener(() {
+      print('=== HOMESCREEN: selectedLocation listener triggered ===');
+      print('=== HOMESCREEN: New value: ${AppState.selectedLocation.value}, Old value: $_lastKnownLocation ===');
+      if (mounted && AppState.selectedLocation.value != _lastKnownLocation) {
+        print('=== HOMESCREEN: Updating _lastKnownLocation and fetching data ===');
+        setState(() {
+          _lastKnownLocation = AppState.selectedLocation.value;
+        });
+        _fetchHomeData();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _fetchHomeData() async {
     print('--- FETCHING HOME DATA START ---');
     setState(() => _isLoading = true);
     try {
-      // Fetch only home data as it contains both categories and events
-      final homeData = await ApiClient.home();
-      print('Home API Full Response: $homeData');
-
-      setState(() {
-        // Extracting categories from home API
-        _categories = homeData?['categories'] ?? [];
+      if (_activeFilters != null) {
+        final results = await ApiClient.getCustomerEvents(
+          category: _activeFilters?['category'],
+          eventType: _activeFilters?['event'],
+          dates: _activeFilters?['dates'],
+          minPrice: _activeFilters?['min'],
+          maxPrice: _activeFilters?['max'],
+          filterVenue: AppState.selectedLocation.value,
+        );
         
-        // Only update events if no filters are active
-        if (_activeFilters == null) {
+        final homeData = await ApiClient.home(filterVenue: AppState.selectedLocation.value);
+        print("homedata----$homeData");
+        setState(() {
+          _categories = homeData?['categories'] ?? [];
+          if (results != null) {
+            if (results['events'] != null && results['events']['data'] is List) {
+              _events = results['events']['data'];
+            } else if (results['data'] is List) {
+              _events = results['data'];
+            } else {
+              _events = [];
+            }
+          }
+          _isLoading = false;
+        });
+      } else {
+        final homeData = await ApiClient.home(filterVenue: AppState.selectedLocation.value);
+       print("homedata----$homeData");
+        setState(() {
+          _categories = homeData?['categories'] ?? [];
           final eventsList = homeData?['upcoming_events'] ?? homeData?['events'] ?? [];
           _events = eventsList is List ? eventsList : [];
-        }
-        
-        if (_events.isNotEmpty) {
-          print('First event data sample: ${_events.first}');
-        }
-        
-        print('Home Data - Categories: ${_categories.length}, Events: ${_events.length}');
-        _isLoading = false;
-      });
+          _isLoading = false;
+        });
+      }
     } catch (e, stack) {
       print('Error fetching home data: $e');
       print('Stack trace: $stack');
@@ -80,6 +132,7 @@ class _HomeScreenState extends State<HomeScreen> {
         dates: filters['dates'],
         minPrice: filters['min'],
         maxPrice: filters['max'],
+        filterVenue: AppState.selectedLocation.value,
       );
       
       setState(() {
@@ -103,14 +156,9 @@ class _HomeScreenState extends State<HomeScreen> {
   void _resetFilters() {
     setState(() {
       _activeFilters = null;
+      AppState.selectedLocation.value = null;
     });
     _fetchHomeData();
-  }
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
   }
 
   @override
@@ -128,7 +176,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Search Bar with Drawer and Filter
+                        // Top Header Row: Location + Filters
                         Row(
                           children: [
                             IconButton(
@@ -138,31 +186,69 @@ class _HomeScreenState extends State<HomeScreen> {
                             const SizedBox(width: 4),
                             Expanded(
                               child: GestureDetector(
-                                onTap: widget.onSearchTap,
+                                onTap: () async {
+                                  final selected = await Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => SelectLocationScreen(
+                                        initialLocation: AppState.selectedLocation.value,
+                                      ),
+                                    ),
+                                  );
+                                  if (selected != null) {
+                                    setState(() {
+                                      AppState.selectedLocation.value = selected;
+                                    });
+                                    _fetchHomeData();
+                                  }
+                                },
                                 child: Container(
                                   decoration: BoxDecoration(
-                                    color: AppColors.scaffold,
-                                    borderRadius: BorderRadius.circular(12),
+                                    color: AppColors.white,
+                                    borderRadius: BorderRadius.circular(24),
+                                    border: Border.all(color: AppColors.lightGrey),
                                   ),
-                                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
-                                  child: Row(
-                                    children: const [
-                                      Icon(Icons.search, color: AppColors.grey, size: 20),
-                                      SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text(
-                                          'Find events, artist & venues',
-                                          style: TextStyle(color: AppColors.grey, fontSize: 14),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                    ],
+                                  padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+                                  child: ValueListenableBuilder<String?>(
+                                    valueListenable: AppState.selectedLocation,
+                                    builder: (context, location, child) {
+                                      print('=== HOMESCREEN ValueListenableBuilder: location = $location ===');
+                                      return Row(
+                                        children: [
+                                          const Icon(Icons.location_on, color: AppColors.grey, size: 20),
+                                          const SizedBox(width: 8),
+                                          Expanded(
+                                            child: Text(
+                                              location ?? 'Select Location',
+                                              style: TextStyle(
+                                                color: location != null ? AppColors.black : AppColors.grey,
+                                                fontSize: 14,
+                                                fontWeight: location != null ? FontWeight.w500 : FontWeight.normal,
+                                              ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                          if (location != null) ...[
+                                            const SizedBox(width: 8),
+                                            GestureDetector(
+                                              onTap: () {
+                                                setState(() {
+                                                  AppState.selectedLocation.value = null;
+                                                });
+                                                _fetchHomeData();
+                                              },
+                                              child: const Icon(Icons.close, color: AppColors.grey, size: 20),
+                                            ),
+                                          ],
+                                        ],
+                                      );
+                                    },
                                   ),
                                 ),
                               ),
                             ),
-                            const SizedBox(width: 4),
+                            const SizedBox(width: 12),
                             IconButton(
                               icon: Icon(
                                 Icons.filter_list,
@@ -180,6 +266,38 @@ class _HomeScreenState extends State<HomeScreen> {
                                   _applyFilters(filters);
                                 }
                               },
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        // Search Bar
+                        Row(
+                          children: [
+                            Expanded(
+                              child: GestureDetector(
+                                onTap: widget.onSearchTap,
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF5F5F5),
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                                  child: Row(
+                                    children: const [
+                                      Icon(Icons.search, color: AppColors.grey, size: 20),
+                                      SizedBox(width: 10),
+                                      Expanded(
+                                        child: Text(
+                                          'Find events, artist & venues',
+                                          style: TextStyle(color: AppColors.grey, fontSize: 14),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
                             ),
                           ],
                         ),
@@ -245,14 +363,26 @@ class _HomeScreenState extends State<HomeScreen> {
                                   organizer: event['organizer'] is Map 
                                       ? (event['organizer']['username'] ?? 'Unknown')
                                       : (event['organizer_name'] ?? 'Unknown'),
-                                  date: event['event_date'] != null 
-                                      ? '${event['event_date']} / ${event['event_start_time'] ?? ''}'
-                                      : (event['start_date'] != null 
-                                          ? '${event['start_date']} / ${event['start_time'] ?? ''}'
-                                          : ''),
-                                  price: formatPrice(event['payment_info'] is Map 
+                                  date: (() {
+                                    String d = event['event_date']?.toString() ?? event['start_date']?.toString() ?? '';
+                                    String t = event['event_start_time']?.toString() ?? event['start_time']?.toString() ?? '';
+                                    
+                                    if (d.isEmpty && event['date_type'] == 'multiple' && event['multiple_dates'] is List && (event['multiple_dates'] as List).isNotEmpty) {
+                                      final firstDate = (event['multiple_dates'] as List).first;
+                                      d = firstDate['event_date']?.toString() ?? firstDate['start_date']?.toString() ?? '';
+                                      t = firstDate['event_start_time']?.toString() ?? firstDate['start_time']?.toString() ?? '';
+                                    }
+                                    String formattedDate = formatShortEventDate(d);
+                                    return formattedDate.isNotEmpty ? '$formattedDate / $t' : '';
+                                  })(),
+                                  price: event['payment_info'] is Map 
                                       ? (event['payment_info']['calculate_price'] ?? event['payment_info']['original_price'])
-                                      : (event['price'] ?? event['event_price'] ?? event['ticket_price'] ?? event['min_price'] ?? event['starting_price'])),
+                                      : (event['final_price'] ?? event['price'] ?? event['event_price'] ?? event['ticket_price'] ?? event['min_price'] ?? event['starting_price']),
+                                  originalPrice: event['payment_info'] is Map 
+                                      ? (event['payment_info']['original_price'] ?? event['payment_info']['calculate_price']) 
+                                      : (event['price'] ?? event['original_price'] ?? event['event_price']),
+                                  isDiscounted: (event['payment_info'] is Map && event['payment_info']['early_bird_discount'] == 'enable') || 
+                                               (event['early_bird_discount'] == 'enable'),
                                   status: event['status_label'],
                                   statusColor: event['status_color'] != null
                                       ? Color(int.parse(event['status_color'].replaceAll('#', '0xFF')))
@@ -402,7 +532,9 @@ class _HomeScreenState extends State<HomeScreen> {
     required String location,
     required String organizer,
     required String date,
-    required String price,
+    required dynamic price,
+    dynamic originalPrice,
+    bool? isDiscounted,
     String? status,
     Color? statusColor,
   }) {
@@ -415,7 +547,7 @@ class _HomeScreenState extends State<HomeScreen> {
               eventId: eventId,
               title: title,
               imageUrl: imageUrl,
-              price: price,
+              price: formatPrice(price),
             ),
           ),
         );
@@ -490,9 +622,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 style: const TextStyle(fontSize: 13, color: AppColors.darkGrey),
               ),
               const SizedBox(height: 4),
-              Text(
-                price,
-                style: const TextStyle(
+              PriceDisplay(
+                price: price,
+                originalPrice: originalPrice,
+                isDiscounted: isDiscounted,
+                priceStyle: const TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 14,
                 ),

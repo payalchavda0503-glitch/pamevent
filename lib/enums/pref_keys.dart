@@ -1,5 +1,6 @@
 enum PrefKeys {
   profile('pe_profile'),
+  selectedLocation('selected_location'),
   tickets('tickets', keepAlive: true),
   queue('queue', keepAlive: true),
   barcodes('barcodes', keepAlive: true),

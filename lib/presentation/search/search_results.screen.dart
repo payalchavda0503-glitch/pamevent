@@ -4,10 +4,15 @@ import 'package:flutter/material.dart';
 import '../../api/api.client.dart';
 import '../../helpers/app_colors.dart';
 import '../../helpers/public_url.dart';
+import '../../helpers/utils.dart';
+import '../shared/widgets/price_display.widget.dart';
 import '../event/event_details.screen.dart';
+import '../event/all_events.screen.dart';
 import '../shared/widgets/custom_image.dart';
 import '../shared/widgets/filter_bottom_sheet.widget.dart';
 import 'artist_details.screen.dart';
+import 'venue_details.screen.dart';
+import '../../helpers/app_state.dart';
 
 class SearchResultsScreen extends StatefulWidget {
   final String initialQuery;
@@ -67,7 +72,7 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
   Future<void> _performSearch(String query) async {
     setState(() => _isLoading = true);
     try {
-      final results = await ApiClient.customerSearch(query);
+      final results = await ApiClient.customerSearch(query, filterVenue: AppState.selectedLocation.value);
       print('Search results: $results');
       if (results != null) {
         setState(() {
@@ -76,6 +81,7 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
           _venues = results['venues'] is List ? results['venues'] : [];
           _isLoading = false;
         });
+        print('Search results: $_venues');
       } else {
         setState(() => _isLoading = false);
       }
@@ -97,6 +103,7 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
         dates: _activeFilters!['dates'],
         minPrice: _activeFilters!['min'],
         maxPrice: _activeFilters!['max'],
+         filterVenue: AppState.selectedLocation.value,
       );
       
       if (results != null) {
@@ -245,11 +252,12 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
                             children: _events.map((event) {
                               final price = event['payment_info'] is Map 
                                   ? (event['payment_info']['calculate_price'] ?? event['payment_info']['original_price'])
-                                  : (event['price'] ?? event['event_price'] ?? event['ticket_price'] ?? event['min_price'] ?? event['starting_price'] ?? '0.00');
+                                  : (event['final_price'] ?? event['price'] ?? event['event_price'] ?? event['ticket_price'] ?? event['min_price'] ?? event['starting_price'] ?? '0.00');
                               
                               return Padding(
                                 padding: const EdgeInsets.only(bottom: 16),
                                 child: _buildEventItem(
+                                  eventData: event,
                                   eventId: event['id'] ?? 0,
                                   imageUrl: resolvePublicUrl(event['thumbnail'] ?? event['image'] ?? event['photo'] ?? event['event_thumbnail']) ?? 'https://picsum.photos/200/200',
                                   title: event['title'] ?? event['event_name'] ?? 'Untitled',
@@ -260,8 +268,24 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
                                            event['venue'] ?? 
                                            'Online',
                                   organizer: event['organizer_name'] ?? event['organizer']?['username'] ?? 'Unknown',
-                                  date: '${event['start_date'] ?? ''} / ${event['start_time'] ?? ''}',
-                                  price: formatPrice(price),
+                                  date: (() {
+                                    String d = event['event_date']?.toString() ?? event['start_date']?.toString() ?? '';
+                                    String t = event['event_start_time']?.toString() ?? event['start_time']?.toString() ?? '';
+                                    
+                                    if (d.isEmpty && event['date_type'] == 'multiple' && event['multiple_dates'] is List && (event['multiple_dates'] as List).isNotEmpty) {
+                                      final firstDate = (event['multiple_dates'] as List).first;
+                                      d = firstDate['event_date']?.toString() ?? firstDate['start_date']?.toString() ?? '';
+                                      t = firstDate['event_start_time']?.toString() ?? firstDate['start_time']?.toString() ?? '';
+                                    }
+                                    String formattedDate = formatShortEventDate(d);
+                                    return formattedDate.isNotEmpty ? '$formattedDate / $t' : '';
+                                  })(),
+                                  price: price,
+                                  originalPrice: event['payment_info'] is Map 
+                                      ? (event['payment_info']['original_price'] ?? event['payment_info']['calculate_price']) 
+                                      : (event['price'] ?? event['original_price'] ?? event['event_price']),
+                                  isDiscounted: (event['payment_info'] is Map && event['payment_info']['early_bird_discount'] == 'enable') || 
+                                               (event['early_bird_discount'] == 'enable'),
                                   status: event['status_label'],
                                   statusColor: event['status_color'] != null
                                       ? Color(int.parse(event['status_color'].replaceAll('#', '0xFF')))
@@ -335,6 +359,8 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
                                     name: venue['venue'] ?? venue['name'] ?? 'Venue',
                                     imageUrl: resolvePublicUrl(venue['image'] ?? venue['photo'] ?? venue['thumbnail']),
                                     address: venue['address'] ?? '${venue['city'] ?? ''}, ${venue['country'] ?? ''}',
+                                    city: venue['city']?.toString(),
+                                    venueData: venue,
                                   ),
                                 );
                               }).toList(),
@@ -368,75 +394,76 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
     required String name,
     required String? imageUrl,
     required String address,
+    required String? city,
+    required dynamic venueData,
   }) {
-    return Container(
-      width: 160,
-      decoration: BoxDecoration(
-        color: AppColors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.lightGrey.withOpacity(0.5)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ClipRRect(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-            child: CustomImage(
-              imageUrl,
-              height: 100,
-              fit: BoxFit.cover,
-              whenEmpty: Container(
-                height: 100,
-                color: AppColors.lightGrey.withOpacity(0.3),
-                child: const Center(
-                  child: Icon(Icons.business, size: 40, color: AppColors.grey),
-                ),
-              ),
+    return GestureDetector(
+      onTap: () {
+        print('Venue tapped!');
+        print('Venue data: $venueData');
+        
+        final slug = venueData['slug'] ?? venueData['venue']?.toString().toLowerCase().replaceAll(' ', '-') ?? name.toLowerCase().replaceAll(' ', '-');
+        print('Venue slug: $slug');
+        
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => VenueDetailsScreen(
+              slug: slug,
+              name: name,
+              imageUrl: imageUrl,
+              address: address,
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+        );
+      },
+      child: Container(
+        width: 160,
+        padding: const EdgeInsets.all(12.0),
+        decoration: BoxDecoration(
+          color: AppColors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.lightGrey.withOpacity(0.5)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              name,
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 4),
+            Row(
               children: [
-                Text(
-                  name,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    const Icon(Icons.location_on, size: 12, color: AppColors.grey),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: Text(
-                        address,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: AppColors.grey,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                const Icon(Icons.location_on, size: 12, color: AppColors.grey),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    address,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: AppColors.grey,
                     ),
-                  ],
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
               ],
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -448,9 +475,12 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
     required String location,
     required String organizer,
     required String date,
-    required String price,
+    required dynamic price,
+    dynamic originalPrice,
+    bool? isDiscounted,
     String? status,
     Color? statusColor,
+    dynamic eventData,
   }) {
     return GestureDetector(
       onTap: () {
@@ -461,7 +491,7 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
               eventId: eventId,
               title: title,
               imageUrl: imageUrl,
-              price: price,
+              price: formatPrice(price),
             ),
           ),
         );
@@ -493,19 +523,39 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
                   overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 4),
-                Row(
-                  children: [
-                    const Icon(Icons.location_on, size: 13, color: AppColors.darkGrey),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: Text(
-                        location,
-                        style: const TextStyle(fontSize: 12, color: AppColors.darkGrey),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                GestureDetector(
+                  onTap: () {
+                    final venueName = eventData?['venue_name'] ?? eventData?['venue'] ?? '';
+                    final venueSlug = eventData?['venue_detail']?['slug']?.toString() ?? 
+                                     eventData?['venue_slug']?.toString() ?? 
+                                     venueName;
+                    
+                    if (venueSlug.isNotEmpty) {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => VenueDetailsScreen(
+                            slug: venueSlug,
+                            name: venueName,
+                          ),
+                        ),
+                      );
+                    }
+                  },
+                  child: Row(
+                    children: [
+                      const Icon(Icons.location_on, size: 13, color: AppColors.primary),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          location,
+                          style: const TextStyle(fontSize: 12, color: AppColors.primary, fontWeight: FontWeight.w500),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 2),
                 Row(
@@ -531,14 +581,16 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                       price,
-                       style: const TextStyle(
-                         fontWeight: FontWeight.bold,
-                         fontSize: 14,
-                         color: AppColors.black,
-                       ),
-                     ),
+                    PriceDisplay(
+                      price: price,
+                      originalPrice: originalPrice,
+                      isDiscounted: isDiscounted,
+                      priceStyle: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        color: AppColors.black,
+                      ),
+                    ),
                     if (status != null)
                       Text(
                         status,

@@ -84,7 +84,7 @@ class ApiClient {
       if (errors is List && errors.isNotEmpty) {
         final msg = errors.first.toString();
         if (msg.toLowerCase().contains('unauthenticated') || msg.toLowerCase().contains('invalid token') || msg.toLowerCase().contains('token expired')) {
-           ToastService.show('aapko fir se login karna padega or logout kr dijiye');
+           ToastService.show('Session expired. Please log in again.');
            AppState.logOut();
            return;
         }
@@ -122,9 +122,18 @@ class ApiClient {
     return null;
   }
 
-  static Future<Map<String, dynamic>?> home() async {
+  static Future<Map<String, dynamic>?> home({String? filterVenue}) async {
     try {
-      final response = await _dio.getUri(ApiConfig.home);
+      Uri uri = ApiConfig.home;
+      if (filterVenue != null && filterVenue.isNotEmpty) {
+        uri = uri.replace(queryParameters: {
+          ...uri.queryParameters,
+          'filter_venue': filterVenue,
+        });
+      }
+      
+      final response = await _dio.getUri(uri);
+      
       if (!_isResponseSafe(response)) return null;
       if (response.data['status'] == 100) {
         return response.data['data'];
@@ -178,6 +187,7 @@ class ApiClient {
     String? dates,
     String? minPrice,
     String? maxPrice,
+    String? filterVenue,
   }) async {
     try {
       final Map<String, dynamic> formDataMap = {'page': page};
@@ -198,6 +208,9 @@ class ApiClient {
       }
       if (maxPrice != null && maxPrice.isNotEmpty) {
         formDataMap['max'] = maxPrice;
+      }
+      if (filterVenue != null && filterVenue.isNotEmpty) {
+        formDataMap['filter_venue'] = filterVenue;
       }
 
       final response = await _dio.postUri(
@@ -228,6 +241,11 @@ class ApiClient {
       );
       
       if (!_isResponseSafe(response)) return null;
+
+      // Robust check: if response already has data we need
+      if (response.data is Map && (response.data.containsKey('title') || response.data.containsKey('event_name'))) {
+        return response.data;
+      }
 
       if (response.data['status'] == 100) {
         return response.data['data'];
@@ -327,9 +345,43 @@ class ApiClient {
     return null;
   }
 
-  static Future<Map<String, dynamic>?> customerSearch(String query) async {
+  static Future<Map<String, dynamic>?> getVenueDetail(String slug) async {
     try {
-      final response = await _dio.getUri(ApiConfig.customerSearch(query));
+      debugPrint('Fetching Venue Detail with slug: $slug');
+      debugPrint('Venue Detail API URL: ${ApiConfig.venueDetail}');
+      final response = await _dio.postUri(
+        ApiConfig.venueDetail,
+        data: FormData.fromMap({'slug': slug}),
+      );
+      debugPrint('Venue Detail API Full Response: ${response.data}');
+      
+      // If the API returns the data directly without status/data wrapper
+      if (response.data is Map && response.data.containsKey('venue')) {
+        return response.data;
+      }
+      
+      if (response.data['status'] == 100) {
+        return response.data['data'];
+      } else if (response.data['status'] == 101) {
+        handleToastMessage(response.data['message']);
+      }
+    } catch (exception) {
+      if (kDebugMode) rethrow;
+      dev.log('Error in getVenueDetail ======> $exception');
+    }
+    return null;
+  }
+
+  static Future<Map<String, dynamic>?> customerSearch(String query, {String? filterVenue}) async {
+    try {
+      Uri uri = ApiConfig.customerSearch(query);
+      if (filterVenue != null && filterVenue.isNotEmpty) {
+        uri = uri.replace(queryParameters: {
+          ...uri.queryParameters,
+          'filter_venue': filterVenue,
+        });
+      }
+      final response = await _dio.getUri(uri);
       if (response.data['status'] == 100) {
         return response.data['data'];
       } else if (response.data['status'] == 101) {
@@ -338,6 +390,30 @@ class ApiClient {
     } catch (exception) {
       if (kDebugMode) rethrow;
       dev.log('Error in customerSearch ======> $exception');
+    }
+    return null;
+  }
+
+  static Future<dynamic> getEventLocations() async {
+    try {
+      final response = await _dio.getUri(ApiConfig.getEventLocations);
+      print('=== API CLIENT: LOCATIONS RESPONSE ===');
+      print('Full response data: ${response.data}');
+      print('Response data type: ${response.data.runtimeType}');
+      
+      if (!_isResponseSafe(response)) {
+        return null;
+      }
+      
+      if (response.data['status'] == 100) {
+        print('Returning data: ${response.data['data']}');
+        print('Returning data type: ${response.data['data'].runtimeType}');
+        return response.data['data'];
+      } else if (response.data['status'] == 101) {
+        handleToastMessage(response.data['message']);
+      }
+    } catch (exception) {
+      dev.log('Error in getEventLocations ======> $exception');
     }
     return null;
   }
@@ -790,8 +866,9 @@ class ApiClient {
     try {
       final response = await _dio.postUri(
         ApiConfig.addToCart,
-        data: {'event_id': eventId},
+        data: FormData.fromMap({'event_id': eventId.toString()}),
       );
+      if (!_isResponseSafe(response)) return null;
       if (response.data['status'] == 100) return response.data;
       handleToastMessage(response.data['message']);
     } catch (e) {
@@ -873,11 +950,18 @@ class ApiClient {
 
   static Future<Map<String, dynamic>?> customerBookingDetails(String bookingId, {String? id}) async {
     try {
+      final Map<String, dynamic> body = {
+        'booking_id': bookingId,
+        'order_id': bookingId,
+      };
+
+      if (id != null) {
+        body['id'] = id;
+      }
+
       final response = await _dio.postUri(
-        id != null 
-          ? ApiConfig.customerBookingDetails.replace(queryParameters: {'id': id})
-          : ApiConfig.customerBookingDetails,
-        data: FormData.fromMap({'booking_id': bookingId}),
+        ApiConfig.customerBookingDetails,
+        data: FormData.fromMap(body),
       );
       if (!_isResponseSafe(response)) return null;
       if (response.data['status'] == 100) return response.data;
@@ -885,6 +969,25 @@ class ApiClient {
     } catch (e) {
       if (kDebugMode) rethrow;
       dev.log('Error in customerBookingDetails => $e');
+    }
+    return null;
+  }
+
+  static Future<Map<String, dynamic>?> bookingComplate(String eventId, String bookingId) async {
+    try {
+      final response = await _dio.postUri(
+        ApiConfig.bookingComplate,
+        data: FormData.fromMap({
+          'event_id': eventId,
+          'booking_id': bookingId,
+        }),
+      );
+      if (!_isResponseSafe(response)) return null;
+      if (response.data['status'] == 100) return response.data;
+      handleToastMessage(response.data['message']);
+    } catch (e) {
+      if (kDebugMode) rethrow;
+      dev.log('Error in bookingComplate => $e');
     }
     return null;
   }

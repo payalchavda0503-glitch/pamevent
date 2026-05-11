@@ -37,3 +37,15 @@ String formatEventDate(String dateStr) {
     return dateStr; // Return original if parsing fails
   }
 }
+
+String formatShortEventDate(String dateStr) {
+  if (dateStr.isEmpty) return '';
+  try {
+    // Expected input format: yyyy-MM-dd
+    DateTime dateTime = DateTime.parse(dateStr);
+    // Format: 02 May
+    return DateFormat('dd MMM').format(dateTime);
+  } catch (e) {
+    return dateStr; // Return original if parsing fails
+  }
+}

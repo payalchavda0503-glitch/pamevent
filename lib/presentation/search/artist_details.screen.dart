@@ -3,10 +3,13 @@ import 'package:flutter_html/flutter_html.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../api/api.config.dart';
 import '../../api/api.client.dart';
 import '../../helpers/app_colors.dart';
 import '../../helpers/public_url.dart';
+import '../../helpers/utils.dart';
+import '../shared/widgets/price_display.widget.dart';
 import '../event/event_details.screen.dart';
 import '../shared/app_web_view.screen.dart';
 
@@ -432,15 +435,24 @@ class _ArtistDetailsScreenState extends State<ArtistDetailsScreen> with SingleTi
                     
     final location = event['venue_name'] ?? event['location'] ?? 'Online';
     final organizer = event['organizer_name'] ?? event['organizer']?['username'] ?? 'Unknown';
-    final date = event['start_date'] != null 
-        ? '${event['start_date']} / ${event['start_time'] ?? ''}'
-        : '';
+    final date = (() {
+      String d = event['event_date']?.toString() ?? event['start_date']?.toString() ?? '';
+      String t = event['event_start_time']?.toString() ?? event['start_time']?.toString() ?? '';
+      
+      if (d.isEmpty && event['date_type'] == 'multiple' && event['multiple_dates'] is List && (event['multiple_dates'] as List).isNotEmpty) {
+        final firstDate = (event['multiple_dates'] as List).first;
+        d = firstDate['event_date']?.toString() ?? firstDate['start_date']?.toString() ?? '';
+        t = firstDate['event_start_time']?.toString() ?? firstDate['start_time']?.toString() ?? '';
+      }
+      String formattedDate = formatShortEventDate(d);
+      return formattedDate.isNotEmpty ? '$formattedDate / $t' : '';
+    })();
     
     // Price formatting matching HomeScreen
     String price = '0.00';
     final rawPrice = event['payment_info'] is Map 
-        ? (event['payment_info']['calculate_price'] ?? event['payment_info']['original_price'])
-        : (event['price'] ?? event['event_price'] ?? event['ticket_price'] ?? event['min_price'] ?? event['starting_price']);
+                    ? (event['payment_info']['calculate_price'] ?? event['payment_info']['original_price'])
+                    : (event['final_price'] ?? event['price'] ?? event['event_price'] ?? event['ticket_price'] ?? event['min_price'] ?? event['starting_price']);
     
     if (rawPrice != null) {
       if (rawPrice is num) {
@@ -544,12 +556,14 @@ class _ArtistDetailsScreenState extends State<ArtistDetailsScreen> with SingleTi
                   style: const TextStyle(fontSize: 13, color: AppColors.darkGrey),
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  formattedPrice,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                  ),
+                PriceDisplay(
+                  price: rawPrice ?? price,
+                  originalPrice: (event is Map && event['payment_info'] is Map) 
+                      ? (event['payment_info']['original_price'] ?? event['payment_info']['calculate_price']) 
+                      : (event['price'] ?? event['original_price'] ?? event['event_price']),
+                  isDiscounted: (event is Map && event['payment_info'] is Map && event['payment_info']['early_bird_discount'] == 'enable') || 
+                               (event is Map && event['early_bird_discount'] == 'enable'),
+                  priceStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                 ),
                 if (status != null) ...[
                   const SizedBox(height: 2),
@@ -737,9 +751,25 @@ class _ArtistDetailsScreenState extends State<ArtistDetailsScreen> with SingleTi
     );
   }
 
-  void _openSocialLink(BuildContext context, String title, dynamic rawUrl) {
-    final url = resolvePublicUrl(rawUrl.toString());
-    if (url != null) {
+  void _openSocialLink(BuildContext context, String title, dynamic rawUrl) async {
+    String? resolvedUrl = resolvePublicUrl(rawUrl.toString());
+    if (resolvedUrl != null) {
+      String url = resolvedUrl;
+      
+      // Open YouTube links in default browser instead of embedding
+      if (url.contains('youtube.com') || url.contains('youtu.be')) {
+        try {
+          final uri = Uri.parse(url);
+          if (await canLaunchUrl(uri)) {
+            await launchUrl(uri, mode: LaunchMode.externalApplication);
+            return;
+          }
+        } catch (e) {
+          debugPrint('Error launching YouTube URL: $e');
+        }
+      }
+      
+      // For other links, use the web view
       Navigator.push(
         context,
         MaterialPageRoute(
