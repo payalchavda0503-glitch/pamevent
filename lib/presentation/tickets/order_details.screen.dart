@@ -12,22 +12,22 @@ class OrderDetailsScreen extends StatelessWidget {
     final billingDetails = bookingData['billing_details'] ?? {};
     final event = bookingData['event'] ?? {};
 
-    final bookingId = bookingData['booking_id'] ?? bookingData['order_id'] ?? 'N/A';
+    final bookingId = bookingData['booking_id'] ?? bookingData['order_id'] ?? '-';
     final paymentStatus = paymentInfo['payment_status'] ?? bookingData['payment_status'] ?? 'pending';
 
-    final createdAt = bookingData['created_at'] ?? 'N/A';
-    final eventStartDate = event['start_date'] ?? event['event_start_date'] ?? 'N/A';
+    final createdAt = bookingData['created_at'] ?? '-';
+    final eventStartDate = event['start_date'] ?? event['event_start_date'] ?? '-';
     final eventStartTime = event['start_time'] ?? event['event_start_time'] ?? '';
 
-    final name = billingDetails['name'] ?? billingDetails['customer_name'] ?? bookingData['customer_name'] ?? bookingData['name'] ?? 'N/A';
-    final email = billingDetails['email'] ?? bookingData['customer_email'] ?? bookingData['email'] ?? 'N/A';
-    final phone = billingDetails['phone'] ?? bookingData['customer_phone'] ?? bookingData['phone'] ?? 'N/A';
+    final name = billingDetails['name'] ?? billingDetails['customer_name'] ?? bookingData['customer_name'] ?? bookingData['name'] ?? '-';
+    final email = billingDetails['email'] ?? bookingData['customer_email'] ?? bookingData['email'] ?? '-';
+    final phone = billingDetails['phone'] ?? bookingData['customer_phone'] ?? bookingData['phone'] ?? '-';
 
-    final eventTitle = event['title'] ?? event['event_title'] ?? bookingData['event_name'] ?? bookingData['title'] ?? 'N/A';
+    final eventTitle = event['title'] ?? event['event_title'] ?? bookingData['event_name'] ?? bookingData['title'] ?? '-';
     
     // Format prices safely
     String formatPrice(dynamic value) {
-      if (value == null || value.toString().isEmpty) return '\$0.00';
+      if (value == null || value.toString().isEmpty || value.toString() == 'N/A') return '\$0.00';
       final valStr = value.toString();
       final doubleVal = double.tryParse(valStr) ?? 0.0;
       return '\$${doubleVal.toStringAsFixed(2)}';
@@ -40,7 +40,7 @@ class OrderDetailsScreen extends StatelessWidget {
     final tax = formatPrice(paymentInfo['tax'] ?? bookingData['tax']);
     final totalPaid = formatPrice(paymentInfo['total_paid'] ?? bookingData['total'] ?? bookingData['grand_total']);
     
-    final paymentMethod = paymentInfo['payment_method'] ?? bookingData['payment_method'] ?? bookingData['gateway'] ?? 'N/A';
+    final paymentMethod = paymentInfo['payment_method'] ?? bookingData['payment_method'] ?? bookingData['gateway'] ?? '-';
     final quantity = paymentInfo['quantity']?.toString() ?? bookingData['quantity']?.toString() ?? '1';
 
     return Scaffold(

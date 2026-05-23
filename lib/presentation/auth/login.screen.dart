@@ -26,7 +26,8 @@ import 'register.screen.dart';
 import 'update_guest.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  final VoidCallback? onLoginSuccess;
+  const LoginScreen({super.key, this.onLoginSuccess});
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -51,8 +52,8 @@ class _LoginScreenState extends State<LoginScreen> {
     _createAccount = TapGestureRecognizer();
     _createAccount.onTap = () => context.push(const RegisterScreen());
     if (kDebugMode) {
-      _username.text = 'jeanpierrefinal';
-      _password.text = '12345678';
+      _username.text = 'organizer';
+      _password.text = '123456';
     }
     // if (kDebugMode) {
     //   _username.text = 'glinca21078';
@@ -70,7 +71,11 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _handleAfterLogin(Profile? profile) async {
     if (!mounted || profile == null) return;
     AppState.setProfile(profile, loader: false);
-    context.replace(const MainLayout());
+    if (widget.onLoginSuccess != null) {
+      widget.onLoginSuccess!();
+    } else {
+      context.replace(const MainLayout());
+    }
   }
   Future<void> _handleBarcode(Profile? profile,String? title) async {
     if (!mounted || profile == null) return;

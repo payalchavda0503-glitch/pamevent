@@ -21,10 +21,11 @@ class ApiConfig {
   static Uri get artists => Uri.parse('$_customerBaseUrl/artists');
   static Uri customerSearch(String query) => Uri.parse('$_customerBaseUrl/search?q=$query');
   static Uri get getEventLocations => Uri.parse('$_customerBaseUrl/get_event_locations');
-  static Uri getArtistDetail(String slug) {
-    return Uri.parse('$_customerBaseUrl/artist/$slug');
-  }
+  static Uri get venues => Uri.parse('$_customerBaseUrl/venues');
+  static Uri get createPaymentIntent => Uri.parse('$_customerBaseUrl/create-payment-intent');
+  static Uri getArtistDetail(String slug) => Uri.parse('$_customerBaseUrl/artist/$slug');
   static Uri get venueDetail => Uri.parse('$_customerBaseUrl/venue_detail');
+  static Uri getVenueDetail(String slug) => Uri.parse('$_customerBaseUrl/venue/$slug');
 
   /// Auth
   static Uri get login => Uri.parse('$_customerBaseUrl/login');
@@ -56,6 +57,8 @@ class ApiConfig {
   static Uri get applyReferral => Uri.parse('$_customerBaseUrl/apply_referral');
   static Uri get addToCart => Uri.parse('$_customerBaseUrl/add_to_cart');
   static Uri get checkout => Uri.parse('$_customerBaseUrl/checkout');
+  static Uri get getBookingId => Uri.parse('$_customerBaseUrl/get_booking_id');
+  static Uri get moncashPaymentUrl => Uri.parse('$_customerBaseUrl/moncash_payment_url');
   static Uri get bookingComplete => Uri.parse('$_customerBaseUrl/booking_complate');
   static Uri get paymentGateway => Uri.parse('$_customerBaseUrl/get_payment_gateway');
 }

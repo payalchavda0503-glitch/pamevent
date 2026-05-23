@@ -53,9 +53,11 @@ class AppState {
       }
     });
     
-    // Still call LocationService to get original current location for Select Location screen
-    print('=== APPSTATE: Calling LocationService.initializeLocation() for originalCurrentLocation ===');
-    await LocationService.initializeLocation();
+    // LocationService initialization removed from here as per request.
+    // It will be called manually when user clicks "Near Me" in Select Location screen
+    
+    // Ensure originalCurrentLocation starts as null so "Near Me" is shown
+    originalCurrentLocation.value = null;
     AppLifecycleListener(
       onPause: BackgroundService.startBackgroundTask,
       onDetach: BackgroundService.stopBackgroundTask,

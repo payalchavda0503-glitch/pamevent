@@ -52,49 +52,52 @@ class _MyTicketsListScreenState extends State<MyTicketsListScreen> {
 
   Future<void> _fetchMyTickets() async {
     print('Starting _fetchMyTickets API calls (Recent & Past)...');
+    setState(() => _isLoading = true);
     
-    // Call both APIs in parallel
-    final results = await Future.wait([
-      ApiClient.customerRecentTickets(page: 1),
-      ApiClient.customerPastTickets(page: 1),
-    ]);
+    try {
+      // Call both APIs in parallel
+      final results = await Future.wait([
+        ApiClient.customerRecentTickets(page: 1),
+        ApiClient.customerPastTickets(page: 1),
+      ]).timeout(const Duration(seconds: 15));
 
-    final recentResponse = results[0];
-    final pastResponse = results[1];
+      final recentResponse = results[0];
+      final pastResponse = results[1];
 
-    print('Recent Response: $recentResponse');
-    print('Past Response: $pastResponse');
+      if (mounted) {
+        setState(() {
+          _upcomingTickets.clear();
+          _pastTickets.clear();
 
-    if (mounted) {
-      setState(() {
-        _isLoading = false;
-        
-        _upcomingTickets.clear();
-        _pastTickets.clear();
-
-        // Parse Recent Tickets
-        if (recentResponse != null && recentResponse['data'] != null) {
-          final data = recentResponse['data'];
-          // Based on user input, recent bookings might be in a list or inside a 'data' key if paginated
-          if (data is List) {
-            _upcomingTickets.addAll(data);
-          } else if (data is Map && data['data'] is List) {
-            _upcomingTickets.addAll(data['data']);
+          // Parse Recent Tickets
+          if (recentResponse != null && recentResponse['data'] != null) {
+            final data = recentResponse['data'];
+            if (data is List) {
+              _upcomingTickets.addAll(data);
+            } else if (data is Map && data['data'] is List) {
+              _upcomingTickets.addAll(data['data']);
+            }
           }
-        }
 
-        // Parse Past Tickets
-        if (pastResponse != null && pastResponse['data'] != null) {
-          final data = pastResponse['data'];
-          if (data is List) {
-            _pastTickets.addAll(data);
-          } else if (data is Map && data['data'] is List) {
-            _pastTickets.addAll(data['data']);
+          // Parse Past Tickets
+          if (pastResponse != null && pastResponse['data'] != null) {
+            final data = pastResponse['data'];
+            if (data is List) {
+              _pastTickets.addAll(data);
+            } else if (data is Map && data['data'] is List) {
+              _pastTickets.addAll(data['data']);
+            }
           }
-        }
-        
-        print('Parsed ${_upcomingTickets.length} upcoming and ${_pastTickets.length} past tickets');
-      });
+          
+          print('Parsed ${_upcomingTickets.length} upcoming and ${_pastTickets.length} past tickets');
+        });
+      }
+    } catch (e) {
+      print('Error in _fetchMyTickets: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -233,11 +236,14 @@ class _MyTicketsListScreenState extends State<MyTicketsListScreen> {
                             
                             final date = item['event_start_date'] ?? event['start_date'] ?? item['start_date'] ?? '';
                             final time = item['event_start_time'] ?? event['start_time'] ?? item['start_time'] ?? '';
-                            final location = item['event_location'] ?? event['venue'] ?? item['venue'] ?? 'N/A';
+                            String location = item['event_location'] ?? event['venue'] ?? item['venue'] ?? '-';
+                            if (location == 'N/A') location = '-';
                             
                             final dateTime = (() {
                               String d = item['event_start_date']?.toString() ?? event['start_date'] ?? item['start_date'] ?? '';
                               String t = item['event_start_time']?.toString() ?? event['start_time'] ?? item['start_time'] ?? '';
+                              if (d == 'N/A') d = '';
+                              if (t == 'N/A') t = '';
                               String formattedDate = formatShortEventDate(d);
                               return formattedDate.isNotEmpty ? '$formattedDate / $t' : '';
                             })();
@@ -297,10 +303,14 @@ class _MyTicketsListScreenState extends State<MyTicketsListScreen> {
   }) {
     return InkWell(
       onTap: () {
+        final bookingId = item['booking_id']?.toString() ?? item['order_id']?.toString();
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => TicketDetailsScreen(ticket: item),
+            builder: (context) => TicketDetailsScreen(
+              ticket: item,
+              bookingId: bookingId,
+            ),
           ),
         );
       },

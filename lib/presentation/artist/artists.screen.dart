@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../api/api.client.dart';
 import '../../helpers/app_colors.dart';
@@ -18,6 +19,8 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
   bool _isLoading = false;
   int _currentPage = 1;
   bool _hasMore = true;
+  final TextEditingController _searchController = TextEditingController();
+  Timer? _debounce;
 
   @override
   void initState() {
@@ -32,12 +35,28 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
     });
   }
 
+  void _onSearchChanged(String query) {
+    if (_debounce?.isActive ?? false) _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 500), () {
+      setState(() {
+        _artists.clear();
+        _currentPage = 1;
+        _hasMore = true;
+      });
+      _fetchArtists();
+    });
+  }
+
   Future<void> _fetchArtists() async {
     if (_isLoading || !_hasMore) return;
     setState(() => _isLoading = true);
 
     try {
-      final data = await ApiClient.getAllArtists(page: _currentPage, perPage: 20);
+      final data = await ApiClient.getAllArtists(
+        page: _currentPage,
+        perPage: 20,
+        search: _searchController.text,
+      );
       debugPrint('Artists API Full Response: $data');
       
       if (data != null) {
@@ -46,9 +65,8 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
         
         if (data is List) {
           newArtists = data;
-          more = false; // If it's a simple list, maybe no pagination info?
+          more = false;
         } else if (data is Map) {
-          // Check for 'artists' key which might contain pagination
           final artistsData = data['artists'];
           if (artistsData is Map) {
             newArtists = (artistsData['data'] as List?) ?? [];
@@ -57,7 +75,6 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
             newArtists = artistsData;
             more = false;
           } else {
-            // Check if 'data' key exists directly in the root
             final rootData = data['data'];
             if (rootData is List) {
               newArtists = rootData;
@@ -87,6 +104,8 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
   @override
   void dispose() {
     _scrollController.dispose();
+    _searchController.dispose();
+    _debounce?.cancel();
     super.dispose();
   }
 
@@ -108,42 +127,87 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
         centerTitle: true,
       ),
       body: SafeArea(
-        child: _artists.isEmpty && _isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : RefreshIndicator(
-                onRefresh: () async {
-                  setState(() {
-                    _artists.clear();
-                    _currentPage = 1;
-                    _hasMore = true;
-                  });
-                  await _fetchArtists();
-                },
-                child: GridView.builder(
-                  controller: _scrollController,
-                  padding: const EdgeInsets.all(16),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2,
-                    crossAxisSpacing: 16,
-                    mainAxisSpacing: 16,
-                    childAspectRatio: 0.85,
+        child: Column(
+          children: [
+            // Search Bar
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF5F5F5),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.lightGrey),
+                ),
+                child: TextField(
+                  controller: _searchController,
+                  onChanged: _onSearchChanged,
+                  decoration: InputDecoration(
+                    hintText: 'Search artists...',
+                    hintStyle: const TextStyle(color: AppColors.grey, fontSize: 14),
+                    prefixIcon: const Icon(Icons.search, color: AppColors.grey),
+                    suffixIcon: _searchController.text.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.close, color: AppColors.grey, size: 20),
+                            onPressed: () {
+                              _searchController.clear();
+                              _onSearchChanged('');
+                            },
+                          )
+                        : null,
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 12),
                   ),
-                  itemCount: _artists.length + (_hasMore ? 1 : 0),
-                  itemBuilder: (context, index) {
-                    if (index == _artists.length) {
-                      return const Center(
-                        child: Padding(
-                          padding: EdgeInsets.symmetric(vertical: 16),
-                          child: CircularProgressIndicator(),
-                        ),
-                      );
-                    }
-
-                    final artist = _artists[index];
-                    return _buildArtistItem(artist);
-                  },
                 ),
               ),
+            ),
+            Expanded(
+              child: _isLoading && _artists.isEmpty
+                  ? const Center(child: CircularProgressIndicator())
+                  : _artists.isEmpty
+                      ? const Center(
+                          child: Text(
+                            'Artist not available',
+                            style: TextStyle(color: AppColors.grey, fontSize: 16),
+                          ),
+                        )
+                      : RefreshIndicator(
+                      onRefresh: () async {
+                        setState(() {
+                          _artists.clear();
+                          _currentPage = 1;
+                          _hasMore = true;
+                          _searchController.clear();
+                        });
+                        await _fetchArtists();
+                      },
+                      child: GridView.builder(
+                        controller: _scrollController,
+                        padding: const EdgeInsets.only(left: 16, right: 16, bottom: 16),
+                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 3, // Changed to 3 columns
+                          crossAxisSpacing: 12,
+                          mainAxisSpacing: 12,
+                          childAspectRatio: 0.7, // Adjusted for smaller photos and 3 columns
+                        ),
+                        itemCount: _artists.length + (_hasMore ? 1 : 0),
+                        itemBuilder: (context, index) {
+                          if (index == _artists.length) {
+                            return const Center(
+                              child: Padding(
+                                padding: EdgeInsets.symmetric(vertical: 16),
+                                child: CircularProgressIndicator(),
+                              ),
+                            );
+                          }
+
+                          final artist = _artists[index];
+                          return _buildArtistItem(artist);
+                        },
+                      ),
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -173,30 +237,28 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
       },
       child: Column(
         children: [
-          Expanded(
-            child: AspectRatio(
-              aspectRatio: 1,
-              child: ClipOval(
-                child: CustomImage(
-                  imageUrl,
-                  fit: BoxFit.cover,
-                  whenEmpty: Container(
-                    color: AppColors.lightGrey,
-                    child: const Icon(Icons.person, color: AppColors.grey, size: 40),
-                  ),
+          AspectRatio(
+            aspectRatio: 1,
+            child: ClipOval(
+              child: CustomImage(
+                imageUrl,
+                fit: BoxFit.cover,
+                whenEmpty: Container(
+                  color: AppColors.lightGrey,
+                  child: const Icon(Icons.person, color: AppColors.grey, size: 30),
                 ),
               ),
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
           Text(
             name,
             style: const TextStyle(
               fontWeight: FontWeight.bold,
-              fontSize: 16,
+              fontSize: 12, // Reduced font size for 3 columns
               color: AppColors.black,
             ),
-            maxLines: 1,
+            maxLines: 2, // Allow 2 lines for long names
             overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.center,
           ),

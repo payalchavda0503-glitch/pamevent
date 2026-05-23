@@ -39,6 +39,24 @@ class _MonCashPaymentScreenState extends State<MonCashPaymentScreen> {
     _initWebView();
   }
 
+  bool _isSuccessUrl(String url) {
+    final lowerUrl = url.toLowerCase();
+    return lowerUrl.contains('success') || 
+           lowerUrl.contains('completed') || 
+           lowerUrl.contains('payment_success') ||
+           lowerUrl.contains('order_complete') ||
+           lowerUrl.contains('transaction_success') ||
+           lowerUrl.contains('booking_complate');
+  }
+
+  bool _isCancelUrl(String url) {
+    final lowerUrl = url.toLowerCase();
+    return lowerUrl.contains('cancel') || 
+           lowerUrl.contains('failed') || 
+           lowerUrl.contains('error') ||
+           lowerUrl.contains('payment_cancelled');
+  }
+
   void _initWebView() {
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
@@ -73,10 +91,16 @@ class _MonCashPaymentScreenState extends State<MonCashPaymentScreen> {
             }
             
             // Also check if the URL itself looks like a success redirect
-            if (url.contains('success') || url.contains('completed') || url.contains('booking_complate')) {
+            if (_isSuccessUrl(request.url)) {
                debugPrint('Success detected in navigation request: ${request.url}');
-               _handlePaymentSuccess();
-               return NavigationDecision.navigate;
+               _handlePaymentSuccess(request.url);
+               return NavigationDecision.prevent;
+            }
+
+            if (_isCancelUrl(request.url)) {
+               debugPrint('Cancel detected in navigation request: ${request.url}');
+               _handlePaymentCancelled();
+               return NavigationDecision.prevent;
             }
             
             return NavigationDecision.navigate;
@@ -88,48 +112,68 @@ class _MonCashPaymentScreenState extends State<MonCashPaymentScreen> {
 
   void _checkPaymentCompletion(String url) {
     debugPrint('MonCash WebView URL: $url');
-    final lowerUrl = url.toLowerCase();
     
-    // Check for success keywords
-    if (lowerUrl.contains('success') || 
-        lowerUrl.contains('completed') || 
-        lowerUrl.contains('payment_success') ||
-        lowerUrl.contains('order_complete') ||
-        lowerUrl.contains('transaction_success') ||
-        lowerUrl.contains('booking_complate')) {
+    if (_isSuccessUrl(url)) {
       debugPrint('Success detected in URL: $url');
-      _handlePaymentSuccess();
-    } else if (lowerUrl.contains('cancel') || 
-               lowerUrl.contains('failed') || 
-               lowerUrl.contains('error') ||
-               lowerUrl.contains('payment_cancelled')) {
+      _handlePaymentSuccess(url);
+    } else if (_isCancelUrl(url)) {
       debugPrint('Failure/Cancel detected in URL: $url');
       _handlePaymentCancelled();
     }
   }
 
-  void _handlePaymentSuccess() {
+  void _handlePaymentSuccess(String url) {
     if (_paymentStatus != MonCashPaymentStatus.success) {
-      debugPrint('Handling Payment Success...');
+      debugPrint('Handling Payment Success... URL: $url');
+      
+      // Extract moncash_order_id and transactionId from URL params if present
+      String? moncashOrderId;
+      String? transactionId;
+      
+      try {
+        final uri = Uri.parse(url);
+        moncashOrderId = uri.queryParameters['moncash_order_id'] ?? 
+                         uri.queryParameters['order_id'] ?? 
+                         uri.queryParameters['id'];
+        transactionId = uri.queryParameters['transactionId'] ?? 
+                        uri.queryParameters['transaction_id'] ?? 
+                        uri.queryParameters['tx_id'];
+        
+        debugPrint('Extracted from URL - moncash_order_id: $moncashOrderId, transactionId: $transactionId');
+      } catch (e) {
+        debugPrint('Error parsing URL params: $e');
+      }
+
       setState(() {
         _paymentStatus = MonCashPaymentStatus.success;
         _paymentMessage = 'Payment Successful!';
       });
-      Future.delayed(const Duration(milliseconds: 1000), () {
+      
+      Future.delayed(const Duration(milliseconds: 500), () {
         if (mounted) {
-          debugPrint('Returning true for successful payment...');
-          Navigator.pop(context, true);
+          debugPrint('Returning data for successful payment...');
+          Navigator.pop(context, {
+            'success': true,
+            'moncash_order_id': moncashOrderId,
+            'transactionId': transactionId,
+          });
         }
       });
     }
   }
 
   void _handlePaymentCancelled() {
-    if (_paymentStatus != MonCashPaymentStatus.cancelled && 
+    if (_paymentStatus != MonCashPaymentStatus.cancelled &&
         _paymentStatus != MonCashPaymentStatus.failed) {
       setState(() {
         _paymentStatus = MonCashPaymentStatus.cancelled;
         _paymentMessage = 'Payment Cancelled';
+      });
+      Future.delayed(const Duration(milliseconds: 1500), () {
+        if (mounted) {
+          debugPrint('Returning cancelled result...');
+          Navigator.pop(context, {'success': false});
+        }
       });
     }
   }
@@ -384,7 +428,7 @@ class _MonCashPaymentScreenState extends State<MonCashPaymentScreen> {
     if (_paymentStatus == MonCashPaymentStatus.processing) {
       showDialog(
         context: context,
-        builder: (context) => AlertDialog(
+        builder: (dialogContext) => AlertDialog(
           title: const Text('Cancel Payment?'),
           content: const Text(
             'Are you sure you want to cancel the MonCash payment? '
@@ -392,13 +436,13 @@ class _MonCashPaymentScreenState extends State<MonCashPaymentScreen> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.pop(dialogContext),
               child: const Text('Continue Payment'),
             ),
             TextButton(
               onPressed: () {
-                Navigator.pop(context);
-                Navigator.pop(context, false);
+                Navigator.pop(dialogContext);
+                Navigator.pop(context, {'success': false});
               },
               style: TextButton.styleFrom(foregroundColor: Colors.red),
               child: const Text('Cancel Payment'),
@@ -407,7 +451,7 @@ class _MonCashPaymentScreenState extends State<MonCashPaymentScreen> {
         ),
       );
     } else {
-      Navigator.pop(context, false);
+      Navigator.pop(context, {'success': false});
     }
   }
 }

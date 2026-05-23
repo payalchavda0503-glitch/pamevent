@@ -66,6 +66,7 @@ class ApiClient {
   static bool _isResponseSafe(Response response) {
     if (response.data is! Map) {
       debugPrint('API Error: Response data is not a Map. Actual type: ${response.data.runtimeType}');
+      debugPrint('Raw Response Data: ${response.data}');
       return false;
     }
     return true;
@@ -307,13 +308,17 @@ class ApiClient {
     return null;
   }
 
-  static Future<dynamic> getAllArtists({int page = 1, int perPage = 20}) async {
+  static Future<dynamic> getAllArtists({int page = 1, int perPage = 20, String? search}) async {
     try {
+      final queryParams = {
+        'page': page.toString(),
+        'per_page': perPage.toString(),
+      };
+      if (search != null && search.isNotEmpty) {
+        queryParams['search'] = search;
+      }
       final response = await _dio.getUri(
-        ApiConfig.artists.replace(queryParameters: {
-          'page': page.toString(),
-          'per_page': perPage.toString(),
-        }),
+        ApiConfig.artists.replace(queryParameters: queryParams),
       );
       if (!_isResponseSafe(response)) return null;
       if (response.data['status'] == 100) {
@@ -368,6 +373,31 @@ class ApiClient {
     } catch (exception) {
       if (kDebugMode) rethrow;
       dev.log('Error in getVenueDetail ======> $exception');
+    }
+    return null;
+  }
+
+  static Future<Map<String, dynamic>?> getVenues({String? search, int page = 1, int perPage = 20}) async {
+    try {
+      final queryParams = <String, String>{
+        'page': page.toString(),
+        'per_page': perPage.toString(),
+      };
+      if (search != null && search.isNotEmpty) {
+        queryParams['search'] = search;
+      }
+      final response = await _dio.getUri(
+        ApiConfig.venues.replace(queryParameters: queryParams),
+      );
+      if (!_isResponseSafe(response)) return null;
+      if (response.data['status'] == 100) {
+        return response.data;
+      } else if (response.data['status'] == 101) {
+        handleToastMessage(response.data['message']);
+      }
+    } catch (exception) {
+      if (kDebugMode) rethrow;
+      dev.log('Error in getVenues ======> $exception');
     }
     return null;
   }
@@ -862,11 +892,18 @@ class ApiClient {
     return false;
   }
 
-  static Future<Map<String, dynamic>?> customerAddToCart(int eventId) async {
+  static Future<Map<String, dynamic>?> customerAddToCart(int eventId, {String? ticketId, String? qty, String? price, String? name}) async {
     try {
       final response = await _dio.postUri(
         ApiConfig.addToCart,
-        data: FormData.fromMap({'event_id': eventId.toString()}),
+        data: FormData.fromMap({
+          'event_id': eventId.toString(),
+          if (ticketId != null) 'ticket_id': ticketId,
+          if (qty != null) 'qty': qty,
+          if (price != null) 'price': price,
+          if (name != null) 'ticket_name': name,
+          if (name != null) 'name': name,
+        }),
       );
       if (!_isResponseSafe(response)) return null;
       if (response.data['status'] == 100) return response.data;
@@ -973,13 +1010,14 @@ class ApiClient {
     return null;
   }
 
-  static Future<Map<String, dynamic>?> bookingComplate(String eventId, String bookingId) async {
+  static Future<Map<String, dynamic>?> bookingComplete(String eventId, String bookingId, {String? id}) async {
     try {
       final response = await _dio.postUri(
-        ApiConfig.bookingComplate,
+        ApiConfig.bookingComplete,
         data: FormData.fromMap({
           'event_id': eventId,
           'booking_id': bookingId,
+          if (id != null) 'id': id,
         }),
       );
       if (!_isResponseSafe(response)) return null;
@@ -987,7 +1025,7 @@ class ApiClient {
       handleToastMessage(response.data['message']);
     } catch (e) {
       if (kDebugMode) rethrow;
-      dev.log('Error in bookingComplate => $e');
+      dev.log('Error in bookingComplete => $e');
     }
     return null;
   }
@@ -1015,6 +1053,94 @@ class ApiClient {
     } catch (e) {
       if (kDebugMode) rethrow;
       dev.log('Error in customerCheckout => $e');
+    }
+    return null;
+  }
+
+  static Future<Map<String, dynamic>?> getMonCashPaymentUrl(Map<String, dynamic> body) async {
+    try {
+      final response = await _dio.postUri(
+        ApiConfig.moncashPaymentUrl,
+        data: FormData.fromMap(body),
+      );
+      if (response.data['status'] == 100) return response.data;
+      handleToastMessage(response.data['message']);
+    } catch (e) {
+      if (kDebugMode) rethrow;
+      dev.log('Error in getMonCashPaymentUrl => $e');
+    }
+    return null;
+  }
+
+  static Future<String?> getBookingId() async {
+    try {
+      final response = await _dio.getUri(ApiConfig.getBookingId);
+      if (response.data['status'] == 100) {
+        return response.data['data']?['booking_id']?.toString() ?? 
+               response.data['booking_id']?.toString();
+      }
+      handleToastMessage(response.data['message']);
+    } catch (e) {
+      dev.log('Error in getBookingId => $e');
+    }
+    return null;
+  }
+
+  static Future<Map<String, dynamic>?> createPaymentIntent({
+    required dynamic amount,
+    required String currency,
+    required String bookingId,
+    String? description,
+    String? eventId,
+    Map<String, dynamic>? gatewayInfo,
+  }) async {
+    try {
+      // Backend expects integer, so we round the dollar amount to nearest integer (e.g. 2.89 -> 3)
+      final int amountInt = amount is num ? amount.round() : int.tryParse(amount.toString().split('.').first) ?? 0;
+      final String amountStr = amountInt.toString();
+      
+      debugPrint('DEBUG: Calling createPaymentIntent API: ${ApiConfig.createPaymentIntent}');
+      debugPrint('DEBUG: Original Amount: $amount, Sending as Integer: $amountStr');
+      
+      final Map<String, dynamic> requestData = {
+        'amount': amountStr,
+        'currency': currency,
+        'booking_id': bookingId,
+        'description': description ?? 'Event Ticket Booking',
+      };
+
+      if (eventId != null) {
+        requestData['event_id'] = eventId;
+      }
+
+      if (gatewayInfo != null) {
+        gatewayInfo.forEach((key, value) {
+          requestData['gateway_info[$key]'] = value.toString();
+        });
+      }
+
+      final response = await _dio.postUri(
+        ApiConfig.createPaymentIntent,
+        data: requestData,
+      );
+      
+      debugPrint('DEBUG: createPaymentIntent RAW API Response: ${response.data}');
+      
+      if (!_isResponseSafe(response)) {
+        debugPrint('DEBUG: createPaymentIntent response is NOT safe');
+        return null;
+      }
+
+      if (response.data['status'] == 100) {
+        return response.data['data'] ?? response.data;
+      } else {
+        debugPrint('DEBUG: createPaymentIntent returned status: ${response.data['status']}');
+        handleToastMessage(response.data['message']);
+      }
+    } catch (exception) {
+      debugPrint('DEBUG: Exception in createPaymentIntent: $exception');
+      if (kDebugMode) rethrow;
+      dev.log('Error in createPaymentIntent ======> $exception');
     }
     return null;
   }

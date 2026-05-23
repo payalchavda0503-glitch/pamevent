@@ -26,7 +26,6 @@ class _SplashScreenState extends State<SplashScreen> {
       await AppVersion.setVersion();
       ApiClient.setVersionHeader(AppVersion.buildNumber);
       await fetchSettings();
-      await LocationService.initializeLocation();
       await Future.delayed(const Duration(seconds: 2));
       const dest = MainLayout();
       if (mounted) context.replace(dest);

@@ -47,7 +47,7 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
     
     if (_activeFilters != null) {
       _performFilter();
-    } else if (widget.initialQuery.isNotEmpty) {
+    } else {
       _performSearch(widget.initialQuery);
     }
   }
@@ -60,11 +60,8 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
         _activeFilters = null; // Clear filters when typing a new search
         _performSearch(query);
       } else {
-        setState(() {
-          _events = [];
-          _artists = [];
-          _venues = [];
-        });
+        // When text is cleared, fetch default data (without params)
+        _performSearch('');
       }
     });
   }

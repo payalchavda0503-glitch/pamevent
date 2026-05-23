@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'dart:convert';
 import '../../api/api.client.dart';
 import '../../helpers/app_colors.dart';
 import '../../helpers/app_state.dart';
 import '../../helpers/public_url.dart';
+import '../../helpers/utils.dart';
 import '../../helpers/extensions/context.extension.dart';
 import '../auth/login.screen.dart';
 import '../shared/widgets/custom_button.widget.dart';
@@ -106,6 +108,8 @@ class _StripeModalContentState extends State<_StripeModalContent> {
                 MaterialPageRoute(
                   builder: (_) => OrderSuccessScreen(
                     orderId: widget.eventDetail?['id']?.toString() ?? widget.eventId.toString(),
+                    displayId: widget.eventDetail?['booking_id']?.toString() ?? widget.eventId.toString(),
+                    eventId: widget.eventId.toString(),
                     amount: widget.grandTotal,
                     eventName: widget.eventDetail?['title'],
                   ),
@@ -125,6 +129,7 @@ class _StripeModalContentState extends State<_StripeModalContent> {
                 MaterialPageRoute(
                   builder: (_) => OrderSuccessScreen(
                     orderId: widget.eventDetail?['id']?.toString() ?? widget.eventId.toString(),
+                    displayId: widget.eventDetail?['booking_id']?.toString() ?? widget.eventId.toString(),
                     amount: widget.grandTotal,
                     eventName: widget.eventDetail?['title'],
                   ),
@@ -175,6 +180,7 @@ class CheckoutScreen extends StatefulWidget {
   final double totalAmount;
   final double serviceFee;
   final double processingFee;
+  final List<dynamic>? gateways;
 
   const CheckoutScreen({
     super.key,
@@ -183,6 +189,7 @@ class CheckoutScreen extends StatefulWidget {
     required this.totalAmount,
     this.serviceFee = 0.0,
     this.processingFee = 0.0,
+    this.gateways,
   });
 
   @override
@@ -196,6 +203,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   bool _acceptTerms = false;
   Map<String, dynamic>? _eventDetail;
   bool _isLoadingEvent = true;
+  bool _isSubmitting = false;
   String _stripePublishableKey = '';
   
   double _couponDiscount = 0.0;
@@ -211,10 +219,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   final TextEditingController _couponController = TextEditingController();
   final TextEditingController _referralController = TextEditingController();
 
-  List<Map<String, dynamic>> _hardcodedGateways = [
-    {'id': '4', 'title': 'Credit or debit card', 'icon': Icons.credit_card},
-    {'id': 'moncash', 'title': 'Moncash', 'icon': Icons.money},
-  ];
+  List<Map<String, dynamic>> _hardcodedGateways = [];
 
   @override
   void initState() {
@@ -230,16 +235,48 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     }
     
     _fetchEventDetail();
-    _initCheckoutFlow();
+    // _initCheckoutFlow call will be handled inside _fetchEventDetail or after it
   }
 
   bool get isFreeOrder => widget.totalAmount <= 0;
 
-  double get currentServiceFee => isFreeOrder ? 0.0 : 1.77;
-  double get currentProcessingFee => isFreeOrder ? 0.0 : 0.68;
+  double get currentServiceFee {
+    if (isFreeOrder) return 0.0;
+    // Base service fee from previous screen, rounded to 2 decimal places
+    return double.parse(widget.serviceFee.toStringAsFixed(2));
+  }
+
+  double get currentProcessingFee {
+    if (isFreeOrder) return 0.0;
+    
+    // Find selected gateway to get its fee config
+    final selectedGateway = _hardcodedGateways.firstWhere(
+      (g) => g['id'] == _selectedPaymentMethod,
+      orElse: () => {},
+    );
+
+    double feePerc = 0.0;
+    double feeCents = 0.0;
+
+    if (selectedGateway.isNotEmpty) {
+      feePerc = double.tryParse(selectedGateway['fee']?.toString() ?? '0') ?? 0.0;
+      feeCents = double.tryParse(selectedGateway['fee_cents']?.toString() ?? '0') ?? 0.0;
+    }
+    
+    // Subtotal for processing fee calculation (includes base service fee)
+    final double subtotal = widget.totalAmount + currentServiceFee - _couponDiscount - _referralDiscount;
+    final double percAmount = (subtotal / 100) * feePerc;
+    final totalFee = percAmount + feeCents;
+    
+    final roundedFee = double.parse(totalFee.toStringAsFixed(2));
+    debugPrint('DEBUG: Selected Gateway: ${_selectedPaymentMethod}, Subtotal: $subtotal, FeePerc: $feePerc, FeeCents: $feeCents, Calculated Processing Fee: $totalFee, Rounded: $roundedFee');
+    
+    return roundedFee;
+  }
 
   double get grandTotal {
-    return widget.totalAmount + currentServiceFee + currentProcessingFee - _couponDiscount - _referralDiscount;
+    final total = widget.totalAmount + currentServiceFee + currentProcessingFee - _couponDiscount - _referralDiscount;
+    return double.parse(total.toStringAsFixed(2));
   }
 
   Future<void> _fetchEventDetail() async {
@@ -248,9 +285,102 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       setState(() {
         _eventDetail = data;
         _isLoadingEvent = false;
+        
+        // Extract gateways from widget.gateways or settings if available
+        List<dynamic> gateways = [];
+        if (widget.gateways != null && widget.gateways!.isNotEmpty) {
+          gateways = widget.gateways!;
+        } else if (data != null && data['settings'] != null && data['settings']['online_gateways'] is List) {
+          gateways = data['settings']['online_gateways'];
+        }
+
+        if (gateways.isNotEmpty) {
+           // Filter out duplicates (only keep items that have an ID and unique keywords)
+           final Map<String, Map<String, dynamic>> uniqueGateways = {};
+           for (var g in gateways) {
+             if (g is! Map) continue;
+             final id = g['id']?.toString() ?? '';
+             final keyword = g['keyword']?.toString().toLowerCase() ?? '';
+             if (id.isNotEmpty && keyword.isNotEmpty && !uniqueGateways.containsKey(keyword)) {
+                uniqueGateways[keyword] = Map<String, dynamic>.from(g);
+             }
+           }
+
+           _hardcodedGateways = uniqueGateways.values.map((g) {
+             final name = g['name']?.toString() ?? 'Payment';
+             final keyword = g['keyword']?.toString().toLowerCase() ?? '';
+             final iconPath = g['icon']?.toString() ?? '';
+             
+             // Use full URL if provided, otherwise construct it
+             String iconUrl = '';
+             if (iconPath.isNotEmpty) {
+               if (iconPath.startsWith('http')) {
+                 iconUrl = iconPath;
+               } else {
+                 // Updated folder name from payment-gateway to payment_gateway as per API snippet
+                 iconUrl = 'https://pamevent.com/assets/admin/img/payment_gateway/$iconPath';
+               }
+             }
+             
+             debugPrint('DEBUG: Gateway Icon URL for $name: $iconUrl');
+             
+             return {
+               'id': g['id']?.toString() ?? '',
+               'title': name,
+               'keyword': keyword,
+               'icon_url': iconUrl,
+               'fee': g['fee'],
+               'fee_cents': g['fee_cents'],
+               'service_fee': g['service_fee'],
+               'service_fee_cents': g['service_fee_cents'],
+               'information': g['information'],
+             };
+           }).toList();
+
+           // Set initial selected method to first available or stripe
+           if (_hardcodedGateways.isNotEmpty) {
+             final stripeGw = _hardcodedGateways.firstWhere((g) => g['keyword'] == 'stripe', orElse: () => _hardcodedGateways.first);
+             final moncashGw = _hardcodedGateways.firstWhere((g) => g['keyword'] == 'moncash', orElse: () => {});
+             
+             _selectedPaymentMethod = stripeGw['id'];
+             _stripeId = stripeGw['id'];
+             if (moncashGw.isNotEmpty) {
+               _moncashId = moncashGw['id'];
+             }
+             
+             // Handle Stripe Key initialization from settings
+             final info = stripeGw['information'];
+             if (info != null) {
+                try {
+                  Map<String, dynamic> infoMap = {};
+                  if (info is String) {
+                    infoMap = jsonDecode(info);
+                  } else if (info is Map) {
+                    infoMap = Map<String, dynamic>.from(info);
+                  }
+                  
+                  final pKey = infoMap['key']?.toString() ?? infoMap['publishable_key']?.toString();
+                  if (pKey != null && pKey.isNotEmpty) {
+                    _stripePublishableKey = pKey;
+                    Stripe.publishableKey = _stripePublishableKey;
+                    Stripe.instance.applySettings();
+                    debugPrint('DEBUG: Stripe.publishableKey initialized: $pKey');
+                  }
+                } catch (e) {
+                  debugPrint('Error parsing stripe info: $e');
+                }
+             }
+           }
+        }
       });
+      _initCheckoutFlow();
     }
   }
+
+  double _stripeFeePerc = 0.0;
+  double _stripeFeeCents = 0.0;
+  double _moncashFeePerc = 0.0;
+  double _moncashFeeCents = 0.0;
 
   Future<void> _initCheckoutFlow() async {
     print('Init Checkout Flow - Logged In: $_isLoggedIn');
@@ -273,42 +403,96 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
        }
     }
     
-    await ApiClient.customerAddToCart(widget.eventId);
+    final String? firstTicketId = widget.selectedTickets.isNotEmpty 
+          ? (widget.selectedTickets.first['ticket']['id'] ?? widget.selectedTickets.first['ticket']['ticket_id'])?.toString() 
+          : null;
+      final String firstTicketQty = widget.selectedTickets.isNotEmpty 
+          ? widget.selectedTickets.first['count'].toString() 
+          : '1';
+      final String firstTicketPrice = widget.selectedTickets.isNotEmpty 
+           ? (widget.selectedTickets.first['ticket']['price'] ?? '0').toString() 
+           : '0';
+       final String firstTicketName = widget.selectedTickets.isNotEmpty 
+           ? (widget.selectedTickets.first['ticket']['title'] ?? widget.selectedTickets.first['ticket']['name'] ?? 'Ticket').toString() 
+           : 'Ticket';
+       await ApiClient.customerAddToCart(widget.eventId, ticketId: firstTicketId, qty: firstTicketQty, price: firstTicketPrice, name: firstTicketName);
     
     final gatewaysData = await ApiClient.customerGetPaymentGateways();
     print('GET GATEWAYS RESPONSE: $gatewaysData');
-    if (mounted && gatewaysData != null && gatewaysData['data'] is List) {
-       final gwData = gatewaysData['data'] as List;
+    if (mounted && gatewaysData != null) {
+       final dynamic rawData = gatewaysData['data'];
+       List<dynamic> gwData = [];
+       
+       if (rawData is List) {
+         gwData = rawData;
+       } else if (rawData is Map && rawData['online_gateways'] is List) {
+         gwData = rawData['online_gateways'];
+       }
+
        for (var gw in gwData) {
           final title = gw['name']?.toString().toLowerCase() ?? '';
           final gwId = gw['id']?.toString() ?? gw['gateway_id']?.toString() ?? '';
-          print('Parsing Gateway - Title: $title, ID: $gwId');
+          final fee = double.tryParse(gw['fee']?.toString() ?? '0') ?? 0.0;
+          final feeCents = double.tryParse(gw['fee_cents']?.toString() ?? '0') ?? 0.0;
+          
+          print('Parsing Gateway - Title: $title, ID: $gwId, Fee: $fee, FeeCents: $feeCents');
+
+          // CRITICAL: Update _hardcodedGateways with the most accurate fee data and ID from the specific gateways API
+          if (mounted) {
+            setState(() {
+              final index = _hardcodedGateways.indexWhere((g) => 
+                title.contains(g['keyword'].toString().toLowerCase()) || 
+                g['keyword'].toString().toLowerCase().contains(title)
+              );
+              
+              if (index != -1) {
+                final oldId = _hardcodedGateways[index]['id'];
+                _hardcodedGateways[index]['id'] = gwId;
+                _hardcodedGateways[index]['fee'] = fee;
+                _hardcodedGateways[index]['fee_cents'] = feeCents;
+                
+                if (_selectedPaymentMethod == oldId) {
+                  _selectedPaymentMethod = gwId;
+                }
+                
+                // Also update service fee if this API provides it
+                if (gw['service_fee'] != null) {
+                  _hardcodedGateways[index]['service_fee'] = gw['service_fee'];
+                }
+                if (gw['service_fee_cents'] != null) {
+                  _hardcodedGateways[index]['service_fee_cents'] = gw['service_fee_cents'];
+                }
+                debugPrint('DEBUG: Updated Gateway ${_hardcodedGateways[index]['keyword']} ID from $oldId to $gwId in _hardcodedGateways');
+              }
+            });
+          }
           
           if (title.contains('stripe') || title.contains('card') || title.contains('credit')) {
               _stripeId = gwId;
+              _stripeFeePerc = fee;
+              _stripeFeeCents = feeCents;
               
               final gwString = gw.toString();
               final regExp = RegExp(r'(pk_test_[a-zA-Z0-9]+|pk_live_[a-zA-Z0-9]+)');
               final match = regExp.firstMatch(gwString);
-              if (match != null) {
+              if (match != null && _stripePublishableKey.isEmpty) {
                    _stripePublishableKey = match.group(0) ?? '';
+                   Stripe.publishableKey = _stripePublishableKey;
+                   await Stripe.instance.applySettings();
               }
           }
           if (title.contains('moncash') || title.contains('mon cash')) {
               _moncashId = gwId;
+              _moncashFeePerc = fee;
+              _moncashFeeCents = feeCents;
               print('FOUND MONCASH GATEWAY ID: $_moncashId');
           }
        }
        
        print('RESOLVED GATEWAYS - Stripe ID: $_stripeId (Key: $_stripePublishableKey), Moncash ID: $_moncashId');
        
-       setState(() {
-          _hardcodedGateways = [
-            {'id': _stripeId, 'title': 'Credit or debit card', 'icon': Icons.credit_card},
-            {'id': _moncashId, 'title': 'Moncash', 'icon': Icons.money},
-          ];
-          _selectedPaymentMethod = _stripeId;
-       });
+       // Note: _hardcodedGateways is now populated from _fetchEventDetail 
+       // to include icons and dynamic fees from settings.
     }
   }
 
@@ -358,8 +542,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   }
 
   Future<void> _proceedToCheckout() async {
-     print('START _proceedToCheckout');
-     print('Is Free Order: $isFreeOrder');
+     if (_isSubmitting) return;
+     
      String fname = _nameController.text.trim();
      String phone = _phoneController.text.trim();
      String email = _emailController.text.trim();
@@ -375,21 +559,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         if (phone.isEmpty) phone = '0000000000'; 
      }
 
-     print('Final Attendee Data - Name: $fname, Email: $email, Phone: $phone');
-
      if (fname.isEmpty || email.isEmpty || phone.isEmpty) {
-         String missing = '';
-         if (fname.isEmpty) missing += 'Name, ';
-         if (email.isEmpty) missing += 'Email, ';
-         if (phone.isEmpty) missing += 'Phone, ';
-         missing = missing.substring(0, missing.length - 2);
-         
-         print('Validation failed: Attendee details missing ($missing)');
-         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Please fill all required attendee details ($missing)')));
+         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please fill all required attendee details')));
          return;
      }
      if (!isFreeOrder && _selectedPaymentMethod.isEmpty) {
-         print('Validation failed: Payment method is empty literal string');
          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select a payment method')));
          return;
      }
@@ -398,209 +572,423 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
          return;
      }
 
-     double finalGrandTotal = grandTotal;
-     double finalSubTotal = widget.totalAmount;
+     setState(() => _isSubmitting = true);
+     AppState.showLoader();
 
-     String finalGateway = isFreeOrder ? 'free' : (_selectedPaymentMethod == _stripeId ? 'stripe' : 'moncash');
+     try {
+       // 1. Get Booking ID first from API
+       final String? orderId = await ApiClient.getBookingId();
+       if (orderId == null) {
+         AppState.hideLoader();
+         setState(() => _isSubmitting = false);
+         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not generate booking ID. Please try again.')));
+         return;
+       }
+       debugPrint('DEBUG: Generated Booking ID from API: $orderId');
 
-     final map = <String, dynamic>{
-         'event_id': widget.eventId.toString(),
-         'event_name': _eventDetail?['title'] ?? 'Event',
-         'fname': fname,
-         'country_code': '+91', 
-         'phone': phone,
-         'email': email,
-         're_enter_email': reEmail,
-         'gateway': finalGateway,
-         'agree_org_policy': '1',
-         'total': finalSubTotal.toStringAsFixed(2),
-         'quantity': widget.selectedTickets.fold<int>(0, (sum, e) => sum + (e['count'] as int)).toString(),
-         'processing_fee': currentProcessingFee.toStringAsFixed(2),
-         'ticket_fees': currentServiceFee.toStringAsFixed(2),
-         'coupon': _couponController.text.isEmpty ? '0' : _couponController.text,
-         'referral_code': _referralController.text.isEmpty ? '0' : _referralController.text,
-         'admin_coupon_discount': _couponDiscount.toStringAsFixed(2),
-         'referral_discount': _referralDiscount.toStringAsFixed(2),
-         'attendee_discount': '0',
-         'event_date': _eventDetail?['start_date'] ?? '',
-         'event_start_time': _eventDetail?['start_time'] ?? '',
-         'tax': '0',
-         'discount': '0',
-         'total_early_bird_dicount': '0',
-         'sub_total': finalSubTotal.toStringAsFixed(2),
-         'grand_total': finalGrandTotal.toStringAsFixed(2),
-     };
-
-     for (int i = 0; i < widget.selectedTickets.length; i++) {
-        final t = widget.selectedTickets[i]['ticket'];
-        final count = widget.selectedTickets[i]['count'];
-        final tId = t['id'] ?? t['ticket_id'] ?? '';
-        final title = t['title'] ?? t['name'] ?? 'Ticket';
-        final price = t['price'] ?? '0';
-
-        map['selTickets[$i][ticket_id]'] = tId.toString();
-        map['selTickets[$i][early_bird_dicount]'] = '0';
-        map['selTickets[$i][name]'] = title.toString();
-        map['selTickets[$i][qty]'] = count.toString();
-        map['selTickets[$i][price]'] = price.toString();
-        map['selTickets[$i][max_ticket_redemption]'] = '1';
-        map['selTickets[$i][absorb_fee_tickets]'] = '0';
-        map['selTickets[$i][qty_ticket_per_table]'] = '1';
-     }
-
-     print('PAYLOAD SENDING TO CHECKOUT: $map');
-
-     if (isFreeOrder) {
-       final res = await ApiClient.customerCheckout(map);
-       print('CHECKOUT RESPONSE (FREE ORDER): $res');
+       double finalProcessingFee = currentProcessingFee;
+       double finalServiceFee = currentServiceFee;
+       double finalSubTotal = widget.totalAmount;
+       double totalToPay = grandTotal;
        
-       if (res != null && res['status'] == 100) {
-         final orderId = res['data']?['order_id']?.toString() ?? widget.eventId.toString();
-         if (mounted) {
-           Navigator.pushAndRemoveUntil(
-             context,
-             MaterialPageRoute(
-               builder: (_) => OrderSuccessScreen(
-                 orderId: orderId,
-                 amount: finalGrandTotal,
-                 eventName: _eventDetail?['title'],
-                 bookingData: res['data'],
-               ),
-             ),
-             (route) => false,
-           );
+       double payloadGrandTotal = finalSubTotal + finalServiceFee - _couponDiscount - _referralDiscount;
+       payloadGrandTotal = double.parse(payloadGrandTotal.toStringAsFixed(2));
+
+       final String processingFeeStr = finalProcessingFee.toStringAsFixed(2);
+       final String serviceFeeStr = finalServiceFee.toStringAsFixed(2);
+
+       String finalGateway = isFreeOrder ? 'free' : (_selectedPaymentMethod == _stripeId ? 'stripe' : 'moncash');
+
+       // Get gateway information to pass to checkout/payment intent
+       Map<String, dynamic>? selectedGatewayInfo;
+       final selectedGw = _hardcodedGateways.firstWhere(
+         (g) => g['id'] == _selectedPaymentMethod,
+         orElse: () => {},
+       );
+       if (selectedGw.isNotEmpty && selectedGw['information'] != null) {
+         final info = selectedGw['information'];
+         if (info is Map) {
+           selectedGatewayInfo = Map<String, dynamic>.from(info);
+         } else if (info is String) {
+           try {
+             selectedGatewayInfo = jsonDecode(info);
+           } catch (e) {
+             debugPrint('Error decoding gateway info: $e');
+           }
          }
        }
-     } else {
-       final res = await ApiClient.customerCheckout(map);
-       print('CHECKOUT RESPONSE: $res');
-       print('Selected Payment Method: $_selectedPaymentMethod, Stripe ID: $_stripeId');
-       print('Response keys: ${res?.keys.toList()}');
 
-       if (res != null) {
-          final paymentData = res['data'] is Map ? res['data'] : res;
-          print('Payment Data: $paymentData');
-          
-          final targetUrl = paymentData['url'] ?? paymentData['redirect_url']; 
-          final clientSecret = paymentData['client_secret'];
-          final orderId = paymentData['order_id']?.toString() ?? widget.eventId.toString();
+       final map = <String, dynamic>{
+           'booking_id': orderId, 
+           'event_id': widget.eventId.toString(),
+           'event_name': _eventDetail?['title'] ?? 'Event',
+           'fname': fname,
+           'country_code': '+91', 
+           'phone': phone,
+           'email': email,
+           're_enter_email': reEmail,
+           'gateway': finalGateway,
+           'agree_org_policy': '1',
+           'total': finalSubTotal.toStringAsFixed(2),
+           'quantity': widget.selectedTickets.fold<int>(0, (sum, e) => sum + (e['count'] as int)).toString(),
+           'processing_fee': processingFeeStr,
+           'service_fee': serviceFeeStr,
+           'ticket_fees': serviceFeeStr, // Keeping both for compatibility
+           'coupon': _couponController.text.isEmpty ? '0' : _couponController.text,
+           'referral_code': _referralController.text.isEmpty ? '0' : _referralController.text,
+           'admin_coupon_discount': _couponDiscount.toStringAsFixed(2),
+           'referral_discount': _referralDiscount.toStringAsFixed(2),
+           'attendee_discount': '0',
+           'event_date': _eventDetail?['start_date'] ?? '',
+           'event_start_time': _eventDetail?['start_time'] ?? '',
+           'tax': '0',
+           'discount': '0',
+           'total_early_bird_discount': '0',
+           'sub_total': finalSubTotal.toStringAsFixed(2),
+           'grand_total': totalToPay.toStringAsFixed(2),
+           'ticket_id': widget.selectedTickets.isNotEmpty ? (widget.selectedTickets.first['ticket']['id'] ?? widget.selectedTickets.first['ticket']['ticket_id']).toString() : '',
+           'tickets_id': widget.selectedTickets.isNotEmpty ? (widget.selectedTickets.first['ticket']['id'] ?? widget.selectedTickets.first['ticket']['ticket_id']).toString() : '',
+           'ticket_ids': widget.selectedTickets.map((e) => (e['ticket']['id'] ?? e['ticket']['ticket_id']).toString()).toList(),
+       };
 
-          if (_selectedPaymentMethod == _stripeId) {
-              print('Processing STRIPE payment');
-              print('Client Secret: ${clientSecret?.toString().substring(0, 20)}...');
-              if (clientSecret != null && clientSecret.toString().isNotEmpty) {
-                 try {
-                    if (_stripePublishableKey.isNotEmpty) {
-                        Stripe.publishableKey = _stripePublishableKey;
-                        print('Using Stripe Publishable Key: $_stripePublishableKey');
-                    } else {
-                        Stripe.publishableKey = 'YOUR_STRIPE_PUBLISHABLE_KEY';
-                        print('WARNING: Using dummy Stripe Publishable Key!');
-                    }
-                    
-                    print('Initializing Payment Sheet...');
-                    await Stripe.instance.initPaymentSheet(
-                      paymentSheetParameters: SetupPaymentSheetParameters(
-                        paymentIntentClientSecret: clientSecret.toString(),
-                        merchantDisplayName: 'Pamevent',
-                        style: ThemeMode.light,
-                        billingDetails: BillingDetails(
-                          name: fname,
-                          email: email,
-                          phone: phone,
-                        ),
-                        allowsDelayedPaymentMethods: true,
-                      ),
-                    );
-                    
-                    print('Presenting Payment Sheet...');
-                    await Stripe.instance.presentPaymentSheet();
-                    print('Payment Sheet completed successfully!');
-                    if (mounted) {
-                        debugPrint('Stripe Payment Successful, redirecting to OrderSuccessScreen...');
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Payment Successful!')));
-                        Navigator.pushAndRemoveUntil(
-                          context, 
-                          MaterialPageRoute(
-                            builder: (_) => OrderSuccessScreen(
-                              orderId: orderId,
-                              amount: finalGrandTotal,
-                              eventName: _eventDetail?['title'],
-                              bookingData: paymentData,
-                            ),
-                          ), 
-                          (route) => false
-                        );
-                    }
-                 } on StripeException catch (e) {
-                    print('Stripe Exception: ${e.error}');
-                    print('Stripe Exception code: ${e.error.code}');
-                    print('Stripe Exception message: ${e.error.localizedMessage}');
-                    if (mounted) {
-                      if (e.error.code == FailureCode.Canceled) {
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Payment cancelled')));
-                      } else {
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Payment failed: ${e.error.localizedMessage}')));
-                      }
-                    }
-                 } catch (e, stack) {
-                    print('General Error during payment: $e');
-                    print('Stack trace: $stack');
-                    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
-                 }
-              } else if (targetUrl != null && targetUrl.toString().startsWith('http')) {
-                 print('Using WebView fallback for Stripe');
-                 if (mounted) _showStripeModal(targetUrl.toString());
-              } else {
-                 if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not initialize payment. Please try again.')));
-                 }
-              }
-          } else {
-             print('Processing MONCASH payment');
-             final String? paymentUrl = (paymentData['url'] ?? paymentData['redirect_url'])?.toString();
-             print('MONCASH REDIRECT URL DETECTED: $paymentUrl');
-             
-             if (paymentUrl != null && paymentUrl.startsWith('http')) {
-                if (mounted) {
-                    final paymentSuccessful = await Navigator.push<bool>(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => MonCashPaymentScreen(
-                          paymentUrl: paymentUrl,
-                          orderId: orderId,
-                          amount: finalGrandTotal,
-                          customerName: fname,
-                          customerEmail: email,
-                        ),
-                      ),
-                    );
-                    if (mounted && paymentSuccessful == true) {
-                        Navigator.pushAndRemoveUntil(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => OrderSuccessScreen(
-                              orderId: orderId,
-                              amount: finalGrandTotal,
-                              eventName: _eventDetail?['title'],
-                              bookingData: paymentData,
-                            ),
-                          ),
-                          (route) => false,
-                        );
-                    }
-                }
-             } else {
-                if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not get payment URL. Please try again.')));
-                }
-             }
-          }
+       // Add gateway credentials to payload if available
+       if (selectedGatewayInfo != null) {
+         selectedGatewayInfo.forEach((key, value) {
+           map['gateway_info[$key]'] = value.toString();
+         });
        }
+
+       for (int i = 0; i < widget.selectedTickets.length; i++) {
+          final t = widget.selectedTickets[i]['ticket'];
+          final count = widget.selectedTickets[i]['count'];
+          final tId = (t['id'] ?? t['ticket_id'] ?? '').toString();
+          final title = (t['title'] ?? t['name'] ?? 'Ticket').toString();
+          final price = (t['price'] ?? '0').toString();
+
+          map['selTickets[$i][ticket_id]'] = tId;
+          map['selTickets[$i][tickets_id]'] = tId; // Adding plural key inside array just in case
+          map['selTickets[$i][id]'] = tId; 
+          map['selTickets[$i][early_bird_discount]'] = '0';
+          map['selTickets[$i][name]'] = title;
+          map['selTickets[$i][qty]'] = count.toString();
+          map['selTickets[$i][price]'] = price;
+          map['selTickets[$i][max_ticket_redemption]'] = '1';
+          map['selTickets[$i][absorb_fee_tickets]'] = '0';
+          map['selTickets[$i][qty_ticket_per_table]'] = '1';
+       }
+
+       if (isFreeOrder) {
+         final res = await ApiClient.customerCheckout(map);
+         if (res != null && res['status'] == 100) {
+           final String? internalId = _extractInternalIdFromResponse(res);
+           final String? displayBookingId = _extractDisplayBookingIdFromResponse(res);
+           if (mounted) {
+             AppState.hideLoader();
+             Navigator.pushAndRemoveUntil(
+               context,
+               MaterialPageRoute(
+                 builder: (_) => OrderSuccessScreen(
+                   orderId: internalId ?? orderId,
+                   displayId: displayBookingId ?? orderId,
+                   eventId: widget.eventId.toString(),
+                   amount: totalToPay,
+                   eventName: _eventDetail?['title'],
+                   bookingData: res['data'],
+                 ),
+               ),
+               (route) => false,
+             );
+           }
+         } else {
+            if (mounted) {
+              AppState.hideLoader();
+              setState(() => _isSubmitting = false);
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(res?['message'] ?? 'Checkout failed')));
+            }
+         }
+       } else {
+         if (_selectedPaymentMethod == _stripeId) {
+             final piRes = await ApiClient.createPaymentIntent(
+               amount: totalToPay,
+               currency: 'USD',
+               bookingId: orderId,
+               description: 'Tickets for ${_eventDetail?['title'] ?? 'Event'}',
+               eventId: widget.eventId.toString(),
+               gatewayInfo: selectedGatewayInfo,
+             );
+             
+             if (piRes != null) {
+               final clientSecret = piRes['client_secret']?.toString() ?? 
+                                  piRes['stripe_secret']?.toString() ?? 
+                                  (piRes['data'] is Map ? (piRes['data']['client_secret']?.toString() ?? piRes['data']['stripe_secret']?.toString()) : null);
+               
+               // Use Stripe Publishable Key from the API (Event Details -> Gateway Settings)
+               // Priority: 1. Payment Intent Response, 2. Event Detail Settings
+               final publishableKey = piRes['stripe_key']?.toString() ?? 
+                                     piRes['publishable_key']?.toString() ?? 
+                                     _stripePublishableKey;
+
+               if (clientSecret != null && clientSecret.isNotEmpty) {
+                  if (publishableKey.isEmpty) {
+                    AppState.hideLoader();
+                    setState(() => _isSubmitting = false);
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Stripe configuration missing. Please contact support.'))
+                      );
+                    }
+                    return;
+                  }
+
+                  try {
+                     Stripe.publishableKey = publishableKey;
+                     await Stripe.instance.applySettings();
+                     debugPrint('DEBUG: Using Stripe Publishable Key: $publishableKey');
+                     
+                     await Stripe.instance.initPaymentSheet(
+                      
+                       paymentSheetParameters: SetupPaymentSheetParameters(
+                         paymentIntentClientSecret: clientSecret,
+                         merchantDisplayName: 'Pamevent',
+                         style: ThemeMode.light,
+                         billingDetails: BillingDetails(name: fname, email: email, phone: phone),
+                       ),
+                     );
+                     
+                     AppState.hideLoader();
+                     await Stripe.instance.presentPaymentSheet();
+                     
+                     AppState.showLoader();
+                     final checkoutRes = await ApiClient.customerCheckout(map);
+                     
+                     if (checkoutRes != null && checkoutRes['status'] == 100) {
+                        final String? internalId = _extractInternalIdFromResponse(checkoutRes);
+                        final String? displayBookingId = _extractDisplayBookingIdFromResponse(checkoutRes);
+                        if (mounted) {
+                            AppState.hideLoader();
+                            Navigator.pushAndRemoveUntil(
+                              context, 
+                              MaterialPageRoute(
+                                builder: (_) => OrderSuccessScreen(
+                                  orderId: internalId ?? orderId,
+                                  displayId: displayBookingId ?? orderId,
+                                  eventId: widget.eventId.toString(),
+                                  amount: totalToPay,
+                                  eventName: _eventDetail?['title'],
+                                  bookingData: checkoutRes['data'],
+                                ),
+                              ), 
+                              (route) => false
+                            );
+                        }
+                     } else {
+                        AppState.hideLoader();
+                        setState(() => _isSubmitting = false);
+                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(checkoutRes?['message'] ?? 'Payment successful but checkout failed.')));
+                     }
+                     return; 
+                  } on StripeException catch (e) {
+                     AppState.hideLoader();
+                     setState(() => _isSubmitting = false);
+                     if (e.error.code == FailureCode.Canceled) {
+                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Payment cancelled')));
+                     } else {
+                        if (mounted) {
+                          showDialog(
+                             context: context,
+                             builder: (context) => AlertDialog(
+                               title: const Text('Stripe Error'),
+                               content: Text(e.error.localizedMessage ?? 'An unknown Stripe error occurred.'),
+                               actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
+                             ),
+                           );
+                        }
+                     }
+                     return;
+                  } catch (e) {
+                     AppState.hideLoader();
+                     setState(() => _isSubmitting = false);
+                     if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Payment Error: $e')));
+                     return;
+                  }
+               }
+             }
+             
+             AppState.hideLoader();
+             setState(() => _isSubmitting = false);
+             if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not initialize Stripe. Please try again.')));
+             
+         } else {
+            // REDIRECT PAYMENT FLOW (MonCash)
+            // 1. Get Payment URL from moncashPaymentUrl API using same payload as checkout
+            final piRes = await ApiClient.getMonCashPaymentUrl(map);
+
+            if (piRes != null) {
+               final paymentData = piRes['data'] is Map ? piRes['data'] : piRes;
+               final String? paymentUrl = (paymentData['url'] ?? paymentData['redirect_url'])?.toString();
+               
+               AppState.hideLoader();
+               
+               if (paymentUrl != null && paymentUrl.startsWith('http')) {
+                  if (mounted) {
+                      final paymentResult = await Navigator.push<Map<String, dynamic>>(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => MonCashPaymentScreen(
+                            paymentUrl: paymentUrl,
+                            orderId: orderId,
+                            amount: totalToPay,
+                            customerName: fname,
+                            customerEmail: email,
+                          ),
+                        ),
+                      );
+                      
+                      if (mounted) {
+                        if (paymentResult != null && paymentResult['success'] == true) {
+                          // 2. Call checkout API ONLY after payment is successful
+                          // Pass moncash_order_id and transactionId from WebView
+                          AppState.showLoader();
+                          
+                          final finalCheckoutMap = Map<String, dynamic>.from(map);
+                          if (paymentResult['moncash_order_id'] != null) {
+                            finalCheckoutMap['moncash_order_id'] = paymentResult['moncash_order_id'];
+                          }
+                          if (paymentResult['transactionId'] != null) {
+                            finalCheckoutMap['transactionId'] = paymentResult['transactionId'];
+                          }
+
+                          final checkoutRes = await ApiClient.customerCheckout(finalCheckoutMap);
+                          
+                          if (checkoutRes != null && checkoutRes['status'] == 100) {
+                            final String? internalId = _extractInternalIdFromResponse(checkoutRes);
+                            final String? displayBookingId = _extractDisplayBookingIdFromResponse(checkoutRes);
+                            AppState.hideLoader();
+                            Navigator.pushAndRemoveUntil(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => OrderSuccessScreen(
+                                  orderId: internalId ?? orderId,
+                                  displayId: displayBookingId ?? orderId,
+                                  eventId: widget.eventId.toString(),
+                                  amount: totalToPay,
+                                  eventName: _eventDetail?['title'],
+                                  bookingData: checkoutRes['data'] ?? checkoutRes,
+                                ),
+                              ),
+                              (route) => false,
+                            );
+                          } else {
+                            AppState.hideLoader();
+                            setState(() => _isSubmitting = false);
+                            if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(checkoutRes?['message'] ?? 'Payment successful but checkout failed.')));
+                          }
+                        } else {
+                          // Payment was cancelled or failed in WebView
+                          setState(() => _isSubmitting = false);
+                          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Payment cancelled or failed.')));
+                        }
+                      }
+                  }
+               } else {
+                  setState(() => _isSubmitting = false);
+                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not get payment URL.')));
+               }
+            } else {
+               AppState.hideLoader();
+               setState(() => _isSubmitting = false);
+            }
+         }
+       }
+     } catch (e) {
+        AppState.hideLoader();
+        setState(() => _isSubmitting = false);
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
      }
   }
 
+  String? _extractInternalIdFromResponse(Map<String, dynamic> res) {
+    try {
+      final data = res['data'] is Map ? res['data'] : res;
+      
+      // Numeric ID for API (booking_info['id'])
+      if (data['booking_info'] is Map) {
+        return data['booking_info']['id']?.toString();
+      }
+      
+      if (data['booking_info'] is List && (data['booking_info'] as List).isNotEmpty) {
+        return data['booking_info'][0]['id']?.toString();
+      }
+      
+      return data['id']?.toString() ?? res['id']?.toString();
+    } catch (e) {
+      debugPrint('Error extracting internal ID: $e');
+      return null;
+    }
+  }
+
+  String? _extractDisplayBookingIdFromResponse(Map<String, dynamic> res) {
+    try {
+      final data = res['data'] is Map ? res['data'] : res;
+      
+      // Alphanumeric ID for UI (booking_info['booking_id'])
+      if (data['booking_info'] is Map) {
+        return data['booking_info']['booking_id']?.toString();
+      }
+      
+      if (data['booking_info'] is List && (data['booking_info'] as List).isNotEmpty) {
+        return data['booking_info'][0]['booking_id']?.toString();
+      }
+      
+      return data['booking_id']?.toString() ?? res['booking_id']?.toString();
+    } catch (e) {
+      debugPrint('Error extracting display booking ID: $e');
+      return null;
+    }
+  }
+
+  void _showStripeBottomSheet(String url) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return Container(
+          height: MediaQuery.of(context).size.height * 0.9,
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: Column(
+            children: [
+              // Handle/Indicator
+              Container(
+                margin: const EdgeInsets.symmetric(vertical: 12),
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Expanded(
+                child: _StripeModalContent(
+                  url: url,
+                  scrollController: ScrollController(),
+                  eventDetail: _eventDetail,
+                  eventId: widget.eventId,
+                  grandTotal: grandTotal,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   void _showStripeModal(String url) {
+    // This is the old full-screen dialog, keeping it as backup or for specific cases
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -626,63 +1014,109 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
   Widget _buildEventInfo() {
     final title = _eventDetail?['title'] ?? _eventDetail?['event_name'] ?? 'Event';
-    final imageUrl = _eventDetail?['image'] ?? _eventDetail?['event_img'] ?? _eventDetail?['event_thumbnail'] ?? _eventDetail?['thumbnail'] ?? '';
-    final startDate = _eventDetail?['start_date'] ?? _eventDetail?['event_date'] ?? '';
-    final startTime = _eventDetail?['start_time'] ?? _eventDetail?['event_start_time'] ?? '';
+    final imageUrl = _eventDetail?['event_thumbnail_url'] ?? 
+                    resolvePublicUrl(_eventDetail?['event_thumbnail'] ?? _eventDetail?['image'] ?? _eventDetail?['event_img']) ?? 
+                    '';
+    
+    final location = _eventDetail?['event_address'] ?? 
+                    '${_eventDetail?['city'] ?? ''}, ${_eventDetail?['country'] ?? ''}'.trim().replaceAll(RegExp(r'^, |, $'), '') ?? 
+                    _eventDetail?['venue'] ?? 
+                    'Online';
+    
+    final organizer = _eventDetail?['organizer'] is Map 
+        ? (_eventDetail?['organizer']['username'] ?? 'Unknown')
+        : (_eventDetail?['organizer_name'] ?? 'Unknown');
+    
+    final date = (() {
+      String d = _eventDetail?['event_date']?.toString() ?? _eventDetail?['start_date']?.toString() ?? '';
+      String t = _eventDetail?['event_start_time']?.toString() ?? _eventDetail?['start_time']?.toString() ?? '';
+      
+      if (d.isEmpty && _eventDetail?['date_type'] == 'multiple' && _eventDetail?['multiple_dates'] is List && (_eventDetail?['multiple_dates'] as List).isNotEmpty) {
+        final firstDate = (_eventDetail?['multiple_dates'] as List).first;
+        d = firstDate['event_date']?.toString() ?? firstDate['start_date']?.toString() ?? '';
+        t = firstDate['event_start_time']?.toString() ?? firstDate['start_time']?.toString() ?? '';
+      }
+      String formattedDate = formatShortEventDate(d);
+      return formattedDate.isNotEmpty ? '$formattedDate / $t' : '';
+    })();
 
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
+            color: Colors.grey.withOpacity(0.05),
             blurRadius: 10,
             offset: const Offset(0, 2),
           ),
         ],
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           ClipRRect(
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(12),
             child: CustomImage(
-              resolvePublicUrl(imageUrl) ?? imageUrl,
-              width: 80,
-              height: 80,
+              imageUrl,
+              width: 120,
+              height: 120,
               fit: BoxFit.cover,
               whenEmpty: Container(
-                width: 80,
-                height: 80,
-                color: Colors.grey[200],
-                child: const Icon(Icons.image, color: Colors.grey),
+                width: 120,
+                height: 120,
+                color: AppColors.lightGrey,
+                child: const Icon(Icons.image_not_supported, color: AppColors.grey),
               ),
             ),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   title,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 4),
-                if (startDate.isNotEmpty || startTime.isNotEmpty)
-                  Text(
-                    '$startDate $startTime'.trim(),
-                    style: TextStyle(
-                      color: Colors.grey[600],
-                      fontSize: 14,
+                Row(
+                  children: [
+                    const Icon(Icons.location_on, size: 14, color: AppColors.darkGrey),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        location,
+                        style: const TextStyle(fontSize: 13, color: AppColors.darkGrey),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                  ),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Row(
+                  children: [
+                    const Icon(Icons.person, size: 14, color: AppColors.darkGrey),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        'By $organizer',
+                        style: const TextStyle(fontSize: 12, color: AppColors.grey),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  date,
+                  style: const TextStyle(fontSize: 13, color: AppColors.darkGrey),
+                ),
               ],
             ),
           ),
@@ -754,10 +1188,19 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         const SizedBox(height: 32),
         const Text('Attendee Details', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
-        if (!_isLoggedIn) ...[
+        if (!_isLoggedIn)
           GestureDetector(
             onTap: () async {
-              await Navigator.push(context, MaterialPageRoute(builder: (_) => const LoginScreen()));
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => LoginScreen(
+                    onLoginSuccess: () {
+                      Navigator.pop(context);
+                    },
+                  ),
+                ),
+              );
               if (AppState.loggedIn) {
                  setState(() {
                    _isLoggedIn = true;
@@ -771,80 +1214,52 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 Text(' for a faster experience.', style: TextStyle(color: Colors.grey)),
               ],
             ),
+          )
+        else
+          Text(
+            'Welcome back, ${_nameController.text.isNotEmpty ? _nameController.text : (AppState.profile?.username ?? 'User')}! Your details are pre-filled.',
+            style: const TextStyle(color: Colors.grey, fontSize: 14),
           ),
-          const SizedBox(height: 24),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              if (constraints.maxWidth > 400) {
-                return Column(
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(child: _buildTextField('Full Name *', 'Enter Your Full Name', _nameController)),
-                        const SizedBox(width: 16),
-                        Expanded(child: _buildTextField('Phone *', '+91 Phone Number', _phoneController)),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(child: _buildTextField('Email *', 'Enter Your Email', _emailController)),
-                        const SizedBox(width: 16),
-                        Expanded(child: _buildTextField('Re-Enter Email *', 'Enter Re Enter Email', _reEmailController)),
-                      ],
-                    ),
-                  ],
-                );
-              }
+          
+        const SizedBox(height: 24),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            if (constraints.maxWidth > 400) {
               return Column(
                 children: [
-                  _buildTextField('Full Name *', 'Enter Your Full Name', _nameController),
+                  Row(
+                    children: [
+                      Expanded(child: _buildTextField('Full Name *', 'Enter Your Full Name', _nameController)),
+                      const SizedBox(width: 16),
+                      Expanded(child: _buildTextField('Phone *', '+91 Phone Number', _phoneController)),
+                    ],
+                  ),
                   const SizedBox(height: 16),
-                  _buildTextField('Phone *', '+91 Phone Number', _phoneController),
-                  const SizedBox(height: 16),
-                  _buildTextField('Email *', 'Enter Your Email', _emailController),
-                  const SizedBox(height: 16),
-                  _buildTextField('Re-Enter Email *', 'Enter Re Enter Email', _reEmailController),
+                  Row(
+                    children: [
+                      Expanded(child: _buildTextField('Email *', 'Enter Your Email', _emailController)),
+                      const SizedBox(width: 16),
+                      Expanded(child: _buildTextField('Re-Enter Email *', 'Enter Re Enter Email', _reEmailController)),
+                    ],
+                  ),
                 ],
               );
             }
-          ),
-        ] else ...[
-           Text(
-             'Welcome back, ${_nameController.text.isNotEmpty ? _nameController.text : (AppState.profile?.username ?? 'User')}! Your details are pre-filled.',
-             style: const TextStyle(color: Colors.grey, fontSize: 14),
-           ),
-           const SizedBox(height: 8),
-           Text(
-             'Name: ${_nameController.text.isNotEmpty ? _nameController.text : (AppState.profile?.username ?? 'User')}\nEmail: ${_emailController.text.isNotEmpty ? _emailController.text : (AppState.profile?.email ?? 'N/A')}\nPhone: ${_phoneController.text.isNotEmpty ? _phoneController.text : (AppState.profile?.phone ?? '0000000000')}',
-             style: TextStyle(color: Colors.grey.shade600, fontSize: 13, height: 1.5),
-           ),
-        ],
+            return Column(
+              children: [
+                _buildTextField('Full Name *', 'Enter Your Full Name', _nameController),
+                const SizedBox(height: 16),
+                _buildTextField('Phone *', '+91 Phone Number', _phoneController),
+                const SizedBox(height: 16),
+                _buildTextField('Email *', 'Enter Your Email', _emailController),
+                const SizedBox(height: 16),
+                _buildTextField('Re-Enter Email *', 'Enter Re Enter Email', _reEmailController),
+              ],
+            );
+          }
+        ),
         
         const SizedBox(height: 24),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          decoration: BoxDecoration(
-            border: Border.all(color: Colors.grey.shade300),
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.check_circle, color: Colors.green),
-              const SizedBox(width: 8),
-              const Text('Success!', style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(width: 24),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  const Text('CLOUDFLARE', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
-                  Text('Privacy - Terms', style: TextStyle(fontSize: 8, color: Colors.grey.shade600)),
-                ],
-              )
-            ],
-          ),
-        ),
         if (!isFreeOrder) ...[
           const SizedBox(height: 32),
           const Text('Payment Method', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
@@ -852,7 +1267,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           ..._hardcodedGateways.map((g) {
              return Padding(
                padding: const EdgeInsets.only(bottom: 12.0),
-               child: _buildPaymentOption(g['title'], g['id'], g['icon'] as IconData),
+               child: _buildPaymentOption(
+                 g['title'], 
+                 g['id'], 
+                 iconUrl: g['icon_url'],
+                 icon: g['keyword'] == 'stripe' ? Icons.credit_card : Icons.money
+               ),
              );
           }).toList(),
         ],
@@ -1054,7 +1474,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     );
   }
 
-  Widget _buildPaymentOption(String title, String value, IconData icon) {
+  Widget _buildPaymentOption(String title, String value, {String? iconUrl, IconData? icon}) {
     bool isSelected = _selectedPaymentMethod == value;
     return GestureDetector(
       onTap: () => setState(() => _selectedPaymentMethod = value),
@@ -1086,7 +1506,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                ) : null,
             ),
             const SizedBox(width: 12),
-            Icon(icon, color: isSelected ? AppColors.primary : Colors.grey),
+            if (iconUrl != null && iconUrl.isNotEmpty)
+              CustomImage(iconUrl, width: 24, height: 24, fit: BoxFit.contain)
+            else if (icon != null)
+              Icon(icon, color: isSelected ? AppColors.primary : Colors.grey),
             const SizedBox(width: 12),
             Text(title, style: TextStyle(color: isSelected ? AppColors.primary : Colors.black87, fontWeight: FontWeight.w500)),
           ],

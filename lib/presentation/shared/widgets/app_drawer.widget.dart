@@ -7,6 +7,7 @@ import '../../../services/toast.service.dart';
 import '../../auth/login.screen.dart';
 import '../../event/all_events.screen.dart';
 import '../../artist/artists.screen.dart';
+import '../../search/venues_list.screen.dart';
 import '../app_web_view.screen.dart';
 
 /// Drawer menus (same base for guest & logged-in; auth adds the last two).
@@ -87,6 +88,16 @@ class AppDrawer extends StatelessWidget {
           Navigator.pop(context);
           Navigator.of(context).push(
             MaterialPageRoute(builder: (_) => const ArtistsScreen()),
+          );
+        },
+      ),
+      _buildListTile(
+        icon: Icons.location_on_outlined,
+        title: 'Venues',
+        onTap: () {
+          Navigator.pop(context);
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const VenuesListScreen()),
           );
         },
       ),

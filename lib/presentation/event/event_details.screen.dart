@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:developer' as dev;
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_html/flutter_html.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../shared/widgets/price_display.widget.dart';
@@ -15,6 +16,230 @@ import '../shared/widgets/custom_image.dart';
 import '../search/artist_details.screen.dart';
 import '../search/venue_details.screen.dart';
 import '../tickets/select_tickets.screen.dart';
+
+class IframeWidget extends StatefulWidget {
+  final String url;
+  const IframeWidget({super.key, required this.url});
+
+  @override
+  State<IframeWidget> createState() => _IframeWidgetState();
+}
+
+class _IframeWidgetState extends State<IframeWidget> {
+  late final WebViewController _controller;
+  bool _hasError = false;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _initController();
+  }
+
+  void _initController() {
+    String url = widget.url.trim();
+    
+    // Handle protocol-relative URLs
+    if (url.startsWith('//')) {
+      url = 'https:$url';
+    }
+
+    // Comprehensive YouTube URL parsing to ensure proper embed format
+    if (url.contains('youtube.com') || url.contains('youtu.be')) {
+      String videoId = '';
+      if (url.contains('watch?v=')) {
+        videoId = url.split('v=').last.split('&').first;
+      } else if (url.contains('youtu.be/')) {
+        videoId = url.split('youtu.be/').last.split('?').first;
+      } else if (url.contains('embed/')) {
+        videoId = url.split('embed/').last.split('?').first;
+      } else if (url.contains('shorts/')) {
+        videoId = url.split('shorts/').last.split('?').first;
+      }
+
+      if (videoId.isNotEmpty) {
+        // Use origin to avoid configuration errors (Error 153)
+        url = 'https://www.youtube.com/embed/$videoId?rel=0&modestbranding=1&enablejsapi=1&origin=https://youtube.com';
+      }
+    }
+
+    _controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setBackgroundColor(Colors.black)
+      // Use a consistent user agent
+      ..setUserAgent("Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36")
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onProgress: (progress) {
+            if (progress > 50 && mounted) {
+              setState(() {
+                _isLoading = false;
+              });
+            }
+          },
+          onPageFinished: (_) {
+            if (mounted) {
+              setState(() {
+                _isLoading = false;
+              });
+            }
+          },
+          onWebResourceError: (error) {
+            debugPrint('WebView Error: ${error.description} (Code: ${error.errorCode})');
+            // Do NOT show error UI for common YouTube/WebView warnings
+            if (mounted && (error.isForMainFrame ?? false) && error.errorCode != -1 && error.errorCode != 153 && error.errorCode != 152) {
+            }
+          },
+        ),
+      );
+
+    _controller.loadRequest(
+      Uri.parse(url.trim()),
+      headers: {
+        'Referer': 'https://www.youtube.com/',
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      color: Colors.black,
+      margin: EdgeInsets.zero, // Remove top margin to fix gap
+      child: AspectRatio(
+        aspectRatio: 16 / 9,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            if (!_hasError)
+              WebViewWidget(controller: _controller),
+            
+            if (_isLoading && !_hasError)
+              const Center(
+                child: SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: AppColors.primary,
+                  ),
+                ),
+              ),
+
+            if (_hasError)
+              Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.error_outline, color: Colors.white, size: 20),
+                    TextButton(
+                      onPressed: () => launchUrl(Uri.parse(widget.url), mode: LaunchMode.externalApplication),
+                      child: const Text('Open Video', style: TextStyle(fontSize: 10, color: AppColors.primary)),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class DescriptionHtml extends StatelessWidget {
+  final String description;
+  final List<dynamic>? faqs;
+  final bool isFaq;
+
+  const DescriptionHtml({
+    super.key,
+    required this.description,
+    this.faqs,
+    this.isFaq = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (isFaq && faqs != null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: faqs!.map((faq) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  faq['question'] ?? faq['title'] ?? 'Question',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.black,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                _buildHtml((faq['answer'] ?? faq['description'] ?? '').toString()),
+              ],
+            ),
+          );
+        }).toList(),
+      );
+    }
+    return _buildHtml(description);
+  }
+
+  Widget _buildHtml(String htmlData) {
+    if (htmlData.isEmpty || htmlData.toLowerCase().contains('no description available')) return const SizedBox.shrink();
+
+    // Aggressive cleaning of space-causing tags
+    String cleaned = htmlData
+        .replaceAll(RegExp(r'(&nbsp;|\s)+'), ' ')
+        .replaceAll(RegExp(r'(<p>\s*</p>|<p>&nbsp;</p>|<br\s*/?>\s*)+'), '')
+        .trim();
+
+    return Html(
+      data: cleaned,
+      onLinkTap: (url, _, __) {
+        if (url != null) {
+          launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+        }
+      },
+      extensions: [
+        TagExtension(
+          tagsToExtend: {"iframe"},
+          builder: (extensionContext) {
+            final url = extensionContext.attributes['src'];
+            if (url == null || url.isEmpty) return const SizedBox();
+            return IframeWidget(key: ValueKey(url), url: url);
+          },
+        ),
+      ],
+      style: {
+        "body": Style(
+          fontSize: FontSize(13),
+          color: AppColors.darkGrey,
+          lineHeight: LineHeight(1.4),
+          margin: Margins.zero,
+          padding: HtmlPaddings.zero,
+        ),
+        "p": Style(
+          margin: Margins.only(bottom: 8),
+          padding: HtmlPaddings.zero,
+        ),
+        "div": Style(
+          margin: Margins.zero,
+          padding: HtmlPaddings.zero,
+        ),
+        "iframe": Style(
+          margin: Margins.zero,
+          padding: HtmlPaddings.zero,
+          display: Display.block,
+        ),
+      },
+    );
+  }
+}
 
 class EventDetailsScreen extends StatefulWidget {
   final int eventId;
@@ -47,6 +272,8 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
   Timer? _sliderTimer;
   final PageController _pageController = PageController();
   WebViewController? _mapController;
+  Widget? _cachedDescription;
+  Widget? _cachedFaq;
 
   @override
   void initState() {
@@ -67,7 +294,11 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
 
   Future<void> _fetchEventDetail() async {
     debugPrint('Fetching details for eventId: ${widget.eventId}');
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _cachedDescription = null; // Clear cache on new fetch
+      _cachedFaq = null;
+    });
     try {
       final data = await ApiClient.getCustomerEventDetail(widget.eventId);
       debugPrint('Event detail API response received for eventId: ${widget.eventId}');
@@ -92,7 +323,9 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
           // Extract performers directly from event detail response
           _performers = data['performers'] is List ? data['performers'] : [];
           _faqs = data['faqs'] is List ? data['faqs'] : data['faq'] is List ? data['faq'] : [];
-          _sponsors = data['sponsors'] is List ? data['sponsors'] : [];
+          _sponsors = (data['sponsors'] is List) 
+              ? data['sponsors'] 
+              : (data['event_sponsors'] is List ? data['event_sponsors'] : []);
           
           print('FAQs count: ${_faqs.length}');
           print('Sponsors count: ${_sponsors.length}');
@@ -305,11 +538,22 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                       IconButton(
                         icon: const Icon(Icons.ios_share, color: AppColors.black),
                         onPressed: () {
-                          final slug = data['slug'] ?? '';
-                          final id = widget.eventId;
-                          if (slug.isNotEmpty) {
-                            final shareUrl = 'https://pamevent.com/event/$slug/$id';
-                            Share.share('Check out this event: $title\n$shareUrl');
+                          String shareUrl = '';
+                          if (data['share_link'] is Map) {
+                            shareUrl = data['share_link']['link']?.toString() ?? '';
+                          } else {
+                            shareUrl = data['share_link']?.toString() ?? '';
+                          }
+
+                          if (shareUrl.isNotEmpty) {
+                            Share.share(shareUrl);
+                          } else {
+                            final slug = data['slug'] ?? '';
+                            final id = widget.eventId;
+                            if (slug.isNotEmpty) {
+                              final manualUrl = 'https://pamevent.com/event/$slug/$id';
+                              Share.share('Check out this event: $title\n$manualUrl');
+                            }
                           }
                         },
                       ),
@@ -442,17 +686,6 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                                           fontSize: 22,
                                           fontWeight: FontWeight.bold,
                                         ),
-                                      ),
-                                    ),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        color: Colors.teal,
-                                        borderRadius: BorderRadius.circular(4),
-                                      ),
-                                      child: const Text(
-                                        'upcoming',
-                                        style: TextStyle(color: AppColors.white, fontSize: 10, fontWeight: FontWeight.bold),
                                       ),
                                     ),
                                   ],
@@ -701,7 +934,15 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (context) => SelectTicketsScreen(eventId: widget.eventId),
+                            builder: (context) {
+                              final settings = _eventDetail?['settings'];
+                              return SelectTicketsScreen(
+                                eventId: widget.eventId,
+                                feePerTicketPerc: double.tryParse(settings?['fee_per_ticket_perc']?.toString() ?? ''),
+                                feePerTicketAmount: double.tryParse(settings?['fee_per_ticket_amount']?.toString() ?? ''),
+                                gateways: _eventDetail?['gateways'],
+                              );
+                            },
                           ),
                         );
                       },
@@ -752,73 +993,25 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
     // Determine which tab is active
     if (_selectedTabIndex == 0) {
       // About Tab: Show description
-      if (description.isNotEmpty) {
-        return Text(
-          description.replaceAll(RegExp(r'<[^>]*>|&nbsp;'), ''),
-          style: const TextStyle(
-            fontSize: 13,
-            color: AppColors.darkGrey,
-            height: 1.4,
-          ),
-        );
-      } else {
-        return const Text(
-          'No description available.',
-          style: TextStyle(fontSize: 13, color: AppColors.darkGrey),
-        );
-      }
+      // Cache the widget to prevent re-building it on every parent setState
+      return _cachedDescription ??= DescriptionHtml(description: description);
     } else if (_selectedTabIndex == 1) {
       // FAQ Tab
       if (_faqs.isEmpty) {
-        return const Text(
-          'No FAQs available.',
-          style: TextStyle(fontSize: 13, color: AppColors.darkGrey),
-        );
+        return const SizedBox.shrink();
       }
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: _faqs.map((faq) {
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  faq['question'] ?? faq['title'] ?? 'Question',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.black,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  (faq['answer'] ?? faq['description'] ?? '').toString().replaceAll(RegExp(r'<[^>]*>|&nbsp;'), ''),
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: AppColors.darkGrey,
-                    height: 1.4,
-                  ),
-                ),
-              ],
-            ),
-          );
-        }).toList(),
-      );
+      return _cachedFaq ??= DescriptionHtml(description: '', faqs: _faqs, isFaq: true);
     } else if (_selectedTabIndex == 2 && _sponsors.isNotEmpty) {
       // Sponsors Tab (only if visible)
       if (_sponsors.isEmpty) {
-        return const Text(
-          'No sponsors available.',
-          style: TextStyle(fontSize: 13, color: AppColors.darkGrey),
-        );
+        return const SizedBox.shrink();
       }
       return Wrap(
         spacing: 12,
         runSpacing: 12,
         children: _sponsors.map((sponsor) {
           final name = sponsor['name'] ?? sponsor['title'] ?? 'Sponsor';
-          final logo = resolvePublicUrl(sponsor['logo'] ?? sponsor['image'] ?? '');
+          final logo = resolvePublicUrl(sponsor['logo'] ?? sponsor['picture'] ?? '');
           return Container(
             width: 100,
             height: 100,
@@ -858,17 +1051,7 @@ class _EventDetailsScreenState extends State<EventDetailsScreen> {
       );
     } else {
       // Fallback to About tab if invalid index
-      if (description.isNotEmpty) {
-        return Text(
-          description.replaceAll(RegExp(r'<[^>]*>|&nbsp;'), ''),
-          style: const TextStyle(
-            fontSize: 13,
-            color: AppColors.darkGrey,
-            height: 1.4,
-          ),
-        );
-      }
-      return const SizedBox.shrink();
+      return DescriptionHtml(description: description);
     }
   }
 

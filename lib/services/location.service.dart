@@ -6,16 +6,37 @@ import '../api/api.client.dart';
 import '../helpers/app_state.dart';
 
 class LocationService {
-  static Future<void> initializeLocation() async {
+  static Future<bool> checkPermissionOnly() async {
+    try {
+      final status = await Permission.locationWhenInUse.status;
+      return status.isGranted;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  static Future<bool> requestPermissionOnly() async {
+    return await _requestLocationPermission();
+  }
+
+  static Future<void> initializeLocation({bool requestPermission = true}) async {
     print('=== LOCATION SERVICE: Starting initialization ===');
     
     try {
-      print('=== LOCATION SERVICE: Requesting permission ===');
-      final permissionGranted = await _requestLocationPermission();
-      
-      if (!permissionGranted) {
-        print('=== LOCATION SERVICE: Permission not granted ===');
-        return;
+      if (requestPermission) {
+        print('=== LOCATION SERVICE: Requesting permission ===');
+        final permissionGranted = await _requestLocationPermission();
+        
+        if (!permissionGranted) {
+          print('=== LOCATION SERVICE: Permission not granted ===');
+          return;
+        }
+      } else {
+        final hasPermission = await checkPermissionOnly();
+        if (!hasPermission) {
+          print('=== LOCATION SERVICE: No permission and requestPermission is false ===');
+          return;
+        }
       }
       
       print('=== LOCATION SERVICE: Permission granted, getting current location ===');
@@ -28,9 +49,14 @@ class LocationService {
       
       print('=== LOCATION SERVICE: Got position - Lat: ${position.latitude}, Lng: ${position.longitude} ===');
       await _matchAndSetCity(position);
+      print('=== LOCATION SERVICE: GOT LOCATION AND MATCHED CITY: ${AppState.originalCurrentLocation.value} ===');
     } catch (e, stack) {
       print('=== LOCATION SERVICE: Error initializing location: $e ===');
       print('=== LOCATION SERVICE: Stack trace: $stack ===');
+      // Set to empty string or handle error so UI stops loading
+      if (AppState.originalCurrentLocation.value == null) {
+        AppState.originalCurrentLocation.value = ''; 
+      }
     }
   }
 

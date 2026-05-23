@@ -7,8 +7,17 @@ import 'checkout.screen.dart';
 
 class SelectTicketsScreen extends StatefulWidget {
   final int eventId;
+  final double? feePerTicketPerc;
+  final double? feePerTicketAmount;
+  final List<dynamic>? gateways;
 
-  const SelectTicketsScreen({super.key, required this.eventId});
+  const SelectTicketsScreen({
+    super.key,
+    required this.eventId,
+    this.feePerTicketPerc,
+    this.feePerTicketAmount,
+    this.gateways,
+  });
 
   @override
   State<SelectTicketsScreen> createState() => _SelectTicketsScreenState();
@@ -16,6 +25,7 @@ class SelectTicketsScreen extends StatefulWidget {
 
 class _SelectTicketsScreenState extends State<SelectTicketsScreen> {
   bool _isLoading = true;
+  bool _isEventOver = false;
   List<dynamic> _tickets = [];
   Map<int, int> _ticketCounts = {};
   double _serviceFee = 0.0;
@@ -30,6 +40,45 @@ class _SelectTicketsScreenState extends State<SelectTicketsScreen> {
     super.initState();
     _fetchTickets();
   }
+
+  double _calculateTotalServiceFee() {
+    double totalFee = 0;
+    if (_tickets.isEmpty) return 0;
+    
+    // Get fee config from API data
+    // Assuming these are at the root of the ticket details response or in the first ticket
+    // Based on user input, these are in the response
+    final data = _tickets.firstWhere((t) => true, orElse: () => {}); // Just to get context if needed, but better from root
+    
+    // We'll need the root data which we saved in _fetchTickets if we want to be precise.
+    // Let's assume they are available in the state if we store them.
+    
+    for (int i = 0; i < _tickets.length; i++) {
+      final ticket = _tickets[i];
+      final int count = _ticketCounts[i] ?? 0;
+      if (count <= 0) continue;
+
+      final double price = double.tryParse((ticket['price'])?.toString() ?? '0') ?? 0;
+      final double finalPrice = double.tryParse((ticket['final_price'] ?? ticket['price'])?.toString() ?? '0') ?? 0;
+      final double discount = price - finalPrice;
+      
+      final double perTicketPerc = double.tryParse((ticket['fee_per_ticket_perc'] ?? _serviceFeePerc).toString()) ?? 0;
+      final double perTicketAmount = double.tryParse((ticket['fee_per_ticket_amount'] ?? _serviceFeeAmount).toString()) ?? 0;
+      
+      final double priceNew = price - discount;
+      
+      // If the ticket is free, the service fee should also be zero
+      final double feePerTicket = priceNew <= 0 
+          ? 0.0 
+          : ((perTicketPerc / 100) * priceNew) + perTicketAmount;
+      
+      totalFee += count * feePerTicket;
+    }
+    return totalFee;
+  }
+
+  double _serviceFeePerc = 0.0;
+  double _serviceFeeAmount = 0.0;
 
   Future<void> _fetchTickets() async {
     setState(() => _isLoading = true);
@@ -49,8 +98,14 @@ class _SelectTicketsScreenState extends State<SelectTicketsScreen> {
           } else {
              _tickets = [data]; 
           }
+          
+          // Dynamic fee config from API or passed from previous screen
+          _serviceFeePerc = widget.feePerTicketPerc ?? double.tryParse((data['fee_per_ticket_perc'] ?? 0.0).toString()) ?? 0.0;
+          _serviceFeeAmount = widget.feePerTicketAmount ?? double.tryParse((data['fee_per_ticket_amount'] ?? 0.0).toString()) ?? 0.0;
+          
           _serviceFee = double.tryParse((data['service_fee'] ?? 0.0).toString()) ?? 0.0;
           _processingFee = double.tryParse((data['processing_fee'] ?? 0.0).toString()) ?? 0.0;
+          _isEventOver = (data['is_event_over']?.toString() == '1');
           
           // Extract dates from 'event_dates' or 'event_starts'
           final datesFromApi = data['event_dates'] ?? data['event_starts'];
@@ -96,7 +151,8 @@ class _SelectTicketsScreenState extends State<SelectTicketsScreen> {
   Widget build(BuildContext context) {
     double ticketsTotal = _calculateTicketsTotal();
     int totalTickets = _calculateTotalTickets();
-    double total = ticketsTotal;
+    double currentServiceFee = _calculateTotalServiceFee();
+    double total = ticketsTotal + currentServiceFee;
 
     return Scaffold(
       backgroundColor: AppColors.white,
@@ -248,6 +304,12 @@ class _SelectTicketsScreenState extends State<SelectTicketsScreen> {
                         
                         final labels = ticket['ticket_labels'] is List ? ticket['ticket_labels'] as List<dynamic> : [];
                         
+                        // Check if ticket is sold out based on labels or other potential flags
+                        bool isSoldOut = labels.any((l) => 
+                          l['label']?.toString().toLowerCase() == 'sold out' || 
+                          l['label']?.toString().toLowerCase() == 'soldout'
+                        );
+
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 16),
                           child: _buildTicketTypeCard(
@@ -257,6 +319,7 @@ class _SelectTicketsScreenState extends State<SelectTicketsScreen> {
                             originalPrice: finalPrice < originalPrice ? '\$${originalPrice.toStringAsFixed(2)}' : null,
                             discountInfo: earlyBirdEnabled ? 'Discount available : (till : $discountDate $discountTime )' : null,
                             labels: labels,
+                            isSoldOut: isSoldOut,
                             count: _ticketCounts[index] ?? 0,
                             onCountChanged: (val) => setState(() => _ticketCounts[index] = val),
                           ),
@@ -302,8 +365,8 @@ class _SelectTicketsScreenState extends State<SelectTicketsScreen> {
             Padding(
               padding: const EdgeInsets.all(16.0),
               child: CustomButton(
-                title: 'Go to payment',
-                onTap: () {
+                title: _isEventOver ? 'Event Over' : 'Go to payment',
+                onTap: _isEventOver ? null : () {
                   List<Map<String, dynamic>> selected = [];
                   for (int i = 0; i < _tickets.length; i++) {
                     int count = _ticketCounts[i] ?? 0;
@@ -322,9 +385,10 @@ class _SelectTicketsScreenState extends State<SelectTicketsScreen> {
                         builder: (context) => CheckoutScreen(
                           eventId: widget.eventId,
                           selectedTickets: selected,
-                          totalAmount: total,
-                          serviceFee: _serviceFee,
+                          totalAmount: ticketsTotal,
+                          serviceFee: currentServiceFee,
                           processingFee: _processingFee,
+                          gateways: widget.gateways,
                         ),
                       ),
                     );
@@ -349,175 +413,209 @@ class _SelectTicketsScreenState extends State<SelectTicketsScreen> {
     required List<dynamic> labels,
     required int count,
     required Function(int) onCountChanged,
+    bool isSoldOut = false,
   }) {
     final ValueNotifier<bool> isExpanded = ValueNotifier<bool>(false);
     
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            title,
-                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                        if (labels.isNotEmpty) ...[
-                          const SizedBox(width: 8),
-                          Wrap(
-                            spacing: 6,
-                            runSpacing: 6,
-                            children: labels.map((labelObj) {
-                              final labelText = labelObj['label']?.toString() ?? '';
-                              final colorCode = labelObj['color_code']?.toString() ?? '';
-                              final color = _parseColor(colorCode);
-                              if (labelText.isEmpty) return const SizedBox.shrink();
-                              
-                              return Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                decoration: BoxDecoration(
-                                  color: color.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(20),
-                                  border: Border.all(color: color.withOpacity(0.5), width: 0.5),
-                                ),
-                                child: Text(
-                                  labelText,
-                                  style: TextStyle(fontSize: 10, color: color, fontWeight: FontWeight.bold),
-                                ),
-                              );
-                            }).toList(),
-                          ),
-                        ],
-                      ],
-                    ),
-                    if (description.isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      ValueListenableBuilder<bool>(
-                        valueListenable: isExpanded,
-                        builder: (context, expanded, child) {
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                description,
-                                style: const TextStyle(fontSize: 13, color: AppColors.grey),
-                                maxLines: expanded ? null : 2,
-                                overflow: expanded ? TextOverflow.visible : TextOverflow.ellipsis,
+    return Opacity(
+      opacity: isSoldOut ? 0.6 : 1.0,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: isSoldOut ? Colors.grey.shade50 : AppColors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: isSoldOut ? 0.02 : 0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              title,
+                              style: TextStyle(
+                                fontSize: 16, 
+                                fontWeight: FontWeight.bold,
+                                color: isSoldOut ? Colors.grey.shade600 : AppColors.black,
                               ),
-                              const SizedBox(height: 4),
-                              GestureDetector(
-                                onTap: () => isExpanded.value = !isExpanded.value,
-                                child: Text(
-                                  expanded ? 'Read less' : 'Read more',
-                                  style: const TextStyle(
-                                    fontSize: 13,
-                                    color: AppColors.primary,
-                                    fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          if (labels.isNotEmpty) ...[
+                            const SizedBox(width: 8),
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 6,
+                              children: labels.map((labelObj) {
+                                final labelText = labelObj['label']?.toString() ?? '';
+                                final colorCode = labelObj['color_code']?.toString() ?? '';
+                                final color = _parseColor(colorCode);
+                                if (labelText.isEmpty) return const SizedBox.shrink();
+                                
+                                return Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: color.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(color: color.withOpacity(0.5), width: 0.5),
+                                  ),
+                                  child: Text(
+                                    labelText,
+                                    style: TextStyle(fontSize: 10, color: color, fontWeight: FontWeight.bold),
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                          ],
+                        ],
+                      ),
+                      if (description.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        ValueListenableBuilder<bool>(
+                          valueListenable: isExpanded,
+                          builder: (context, expanded, child) {
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  description,
+                                  style: TextStyle(
+                                    fontSize: 13, 
+                                    color: isSoldOut ? Colors.grey.shade400 : AppColors.grey,
+                                  ),
+                                  maxLines: expanded ? null : 2,
+                                  overflow: expanded ? TextOverflow.visible : TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 4),
+                                GestureDetector(
+                                  onTap: isSoldOut ? null : () => isExpanded.value = !isExpanded.value,
+                                  child: Text(
+                                    expanded ? 'Read less' : 'Read more',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: isSoldOut ? Colors.grey.shade400 : AppColors.primary,
+                                      fontWeight: FontWeight.bold,
+                                    ),
                                   ),
                                 ),
-                              ),
-                            ],
-                          );
-                        },
+                              ],
+                            );
+                          },
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  children: [
+                    Text(
+                      price,
+                      style: TextStyle(
+                        fontSize: 18, 
+                        fontWeight: FontWeight.bold,
+                        color: isSoldOut ? Colors.grey.shade600 : AppColors.black,
+                      ),
+                    ),
+                    if (originalPrice != null) ...[
+                      const SizedBox(width: 8),
+                      Text(
+                        originalPrice,
+                        style: TextStyle(
+                          fontSize: 14, 
+                          color: isSoldOut ? Colors.grey.shade300 : AppColors.grey,
+                          decoration: TextDecoration.lineThrough,
+                        ),
                       ),
                     ],
                   ],
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.baseline,
-                textBaseline: TextBaseline.alphabetic,
-                children: [
-                  Text(
-                    price,
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: isSoldOut ? Colors.grey.shade200 : AppColors.lightGrey),
+                    borderRadius: BorderRadius.circular(8),
                   ),
-                  if (originalPrice != null) ...[
-                    const SizedBox(width: 8),
-                    Text(
-                      originalPrice,
-                      style: const TextStyle(
-                        fontSize: 14, 
-                        color: AppColors.grey,
-                        decoration: TextDecoration.lineThrough,
+                  child: Row(
+                    children: [
+                      _buildCountButton(
+                        Icons.remove, 
+                        isSoldOut ? null : () {
+                          if (count > 0) onCountChanged(count - 1);
+                        },
+                        isEnabled: !isSoldOut && count > 0,
                       ),
-                    ),
-                  ],
-                ],
-              ),
-              Container(
-                decoration: BoxDecoration(
-                  border: Border.all(color: AppColors.lightGrey),
-                  borderRadius: BorderRadius.circular(8),
+                      Container(
+                        width: 40,
+                        alignment: Alignment.center,
+                        child: Text(
+                          '$count',
+                          style: TextStyle(
+                            fontSize: 16, 
+                            fontWeight: FontWeight.bold,
+                            color: isSoldOut ? Colors.grey.shade400 : AppColors.black,
+                          ),
+                        ),
+                      ),
+                      _buildCountButton(
+                        Icons.add, 
+                        isSoldOut ? null : () {
+                          onCountChanged(count + 1);
+                        },
+                        isEnabled: !isSoldOut,
+                      ),
+                    ],
+                  ),
                 ),
-                child: Row(
-                  children: [
-                    _buildCountButton(Icons.remove, () {
-                      if (count > 0) onCountChanged(count - 1);
-                    }),
-                    Container(
-                      width: 40,
-                      alignment: Alignment.center,
-                      child: Text(
-                        '$count',
-                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                    _buildCountButton(Icons.add, () {
-                      onCountChanged(count + 1);
-                    }),
-                  ],
+              ],
+            ),
+            if (discountInfo != null) ...[
+              const SizedBox(height: 12),
+              Divider(height: 1, color: isSoldOut ? Colors.grey.shade200 : AppColors.lightGrey, thickness: 0.5),
+              const SizedBox(height: 12),
+              Text(
+                discountInfo,
+                style: TextStyle(
+                  fontSize: 12, 
+                  color: isSoldOut ? Colors.grey.shade300 : AppColors.grey,
                 ),
               ),
             ],
-          ),
-          if (discountInfo != null) ...[
-            const SizedBox(height: 12),
-            const Divider(height: 1, color: AppColors.lightGrey, thickness: 0.5),
-            const SizedBox(height: 12),
-            Text(
-              discountInfo,
-              style: const TextStyle(fontSize: 12, color: AppColors.grey),
-            ),
           ],
-        ],
+        ),
       ),
     );
   }
 
-  Widget _buildCountButton(IconData icon, VoidCallback onTap) {
+  Widget _buildCountButton(IconData icon, VoidCallback? onTap, {bool isEnabled = true}) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.all(4),
-        child: Icon(icon, size: 20, color: AppColors.black),
+        child: Icon(
+          icon, 
+          size: 20, 
+          color: isEnabled ? AppColors.black : Colors.grey.shade300,
+        ),
       ),
     );
   }

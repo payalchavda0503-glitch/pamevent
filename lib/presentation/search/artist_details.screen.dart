@@ -1,9 +1,11 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_html/flutter_html.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../api/api.config.dart';
 import '../../api/api.client.dart';
 import '../../helpers/app_colors.dart';
@@ -36,6 +38,7 @@ class _ArtistDetailsScreenState extends State<ArtistDetailsScreen> with SingleTi
   List<dynamic> _upcomingEvents = [];
   List<dynamic> _pastEvents = [];
   bool _isUpcomingTab = true;
+  bool _isAboutExpanded = false;
 
   @override
   void initState() {
@@ -146,10 +149,24 @@ class _ArtistDetailsScreenState extends State<ArtistDetailsScreen> with SingleTi
                           child: const Icon(Icons.arrow_back, color: AppColors.white, size: 20),
                         ),
                       ),
-                      Row(
-                        children: const [
-                          Icon(Icons.ios_share, color: AppColors.grey, size: 24),
-                        ],
+                      GestureDetector(
+                        onTap: () {
+                          String shareUrl = '';
+                          if (_artistDetail?['share_link'] is Map) {
+                            shareUrl = _artistDetail!['share_link']['link']?.toString() ?? '';
+                          } else {
+                            shareUrl = _artistDetail?['share_link']?.toString() ?? '';
+                          }
+
+                          if (shareUrl.isNotEmpty) {
+                            Share.share(shareUrl);
+                          }
+                        },
+                        child: Row(
+                          children: const [
+                            Icon(Icons.ios_share, color: AppColors.grey, size: 24),
+                          ],
+                        ),
                       ),
                     ],
                   ),
@@ -211,6 +228,7 @@ class _ArtistDetailsScreenState extends State<ArtistDetailsScreen> with SingleTi
                             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                           ),
                           Html(
+                            key: ValueKey(_isAboutExpanded),
                             data: about,
                             style: {
                               "body": Style(
@@ -218,47 +236,74 @@ class _ArtistDetailsScreenState extends State<ArtistDetailsScreen> with SingleTi
                                 margin: Margins.zero,
                                 padding: HtmlPaddings.zero,
                                 color: AppColors.black,
-                                maxLines: 3,
+                                maxLines: _isAboutExpanded ? null : 3,
                                 textOverflow: TextOverflow.ellipsis,
                               ),
                             },
                           ),
                           const SizedBox(height: 4),
-                          const Text(
-                            'Read more',
-                            style: TextStyle(
-                              color: Color(0xFF6C63FF),
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
+                          GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                _isAboutExpanded = !_isAboutExpanded;
+                              });
+                            },
+                            child: Text(
+                              _isAboutExpanded ? 'Read less' : 'Read more',
+                              style: const TextStyle(
+                                color: Color(0xFF6C63FF),
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ),
                         ],
                         const SizedBox(height: 12),
-                        Row(
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
                           children: [
-                            if (social['facebook'] != null && social['facebook'].toString().isNotEmpty) ...[
+                            if (social['facebook'] != null && social['facebook'].toString().isNotEmpty)
                               _buildSocialIcon(
-                                'assets/svg/facebook.svg',
+                                'https://cdn.simpleicons.org/facebook/white',
+                                isNetwork: true,
+                                isSvg: true,
                                 onTap: () => _openSocialLink(context, 'Facebook', social['facebook']),
                               ),
-                              const SizedBox(width: 10),
-                            ],
-                            if (social['twitter'] != null && social['twitter'].toString().isNotEmpty) ...[
+                            if (social['twitter'] != null && social['twitter'].toString().isNotEmpty)
                               _buildSocialIcon(
-                                'https://pamevent.com/assets/front/img/twitter_icon.png', 
+                                'https://cdn.simpleicons.org/x/white', 
                                 isNetwork: true,
+                                isSvg: true,
                                 onTap: () => _openSocialLink(context, 'X (Twitter)', social['twitter']),
                               ),
-                              const SizedBox(width: 10),
-                            ],
-                            if (social['instagram'] != null && social['instagram'].toString().isNotEmpty) ...[
+                            if (social['instagram'] != null && social['instagram'].toString().isNotEmpty)
                               _buildSocialIcon(
-                                'https://pamevent.com/assets/front/img/instagram_icon.png',
+                                'https://cdn.simpleicons.org/instagram/white',
                                 isNetwork: true,
+                                isSvg: true,
                                 onTap: () => _openSocialLink(context, 'Instagram', social['instagram']),
                               ),
-                              const SizedBox(width: 10),
-                            ],
+                            if (social['linkedin'] != null && social['linkedin'].toString().isNotEmpty)
+                              _buildSocialIcon(
+                                'https://cdn.simpleicons.org/linkedin/white', 
+                                isNetwork: true,
+                                isSvg: true,
+                                onTap: () => _openSocialLink(context, 'LinkedIn', social['linkedin']),
+                              ),
+                            if (social['youtube'] != null && social['youtube'].toString().isNotEmpty)
+                              _buildSocialIcon(
+                                'https://cdn.simpleicons.org/youtube/white', 
+                                isNetwork: true,
+                                isSvg: true,
+                                onTap: () => _openSocialLink(context, 'YouTube', social['youtube']),
+                              ),
+                            if (social['website'] != null && social['website'].toString().isNotEmpty)
+                              _buildSocialIcon(
+                                '', 
+                                iconData: Icons.language,
+                                onTap: () => _openSocialLink(context, 'Website', social['website']),
+                              ),
                           ],
                         ),
                       ],
@@ -779,29 +824,39 @@ class _ArtistDetailsScreenState extends State<ArtistDetailsScreen> with SingleTi
     }
   }
 
-  Widget _buildSocialIcon(String iconPath, {bool isNetwork = false, VoidCallback? onTap}) {
+  Widget _buildSocialIcon(String iconPath, {bool isNetwork = false, bool isSvg = false, IconData? iconData, VoidCallback? onTap}) {
         return GestureDetector(
           onTap: onTap,
           child: Container(
             width: 32,
             height: 32,
-            padding: const EdgeInsets.all(8),
+            padding: const EdgeInsets.all(7),
             decoration: const BoxDecoration(
               color: AppColors.black,
               shape: BoxShape.circle,
             ),
-            child: isNetwork
-                ? Image.network(
-                    iconPath,
-                    color: AppColors.white,
-                    fit: BoxFit.contain,
-                    errorBuilder: (context, error, stackTrace) => const Icon(Icons.link, color: AppColors.white, size: 14),
-                  )
-                : SvgPicture.asset(
-                    iconPath,
-                    colorFilter: const ColorFilter.mode(AppColors.white, BlendMode.srcIn),
-                    fit: BoxFit.contain,
-                  ),
+            child: iconData != null
+                ? Icon(iconData, color: AppColors.white, size: 16)
+                : isSvg
+                    ? (isNetwork 
+                        ? SvgPicture.network(
+                            iconPath,
+                            colorFilter: const ColorFilter.mode(AppColors.white, BlendMode.srcIn),
+                            fit: BoxFit.contain,
+                          )
+                        : SvgPicture.asset(
+                            iconPath,
+                            colorFilter: const ColorFilter.mode(AppColors.white, BlendMode.srcIn),
+                            fit: BoxFit.contain,
+                          ))
+                    : isNetwork
+                        ? Image.network(
+                            iconPath,
+                            color: AppColors.white,
+                            fit: BoxFit.contain,
+                            errorBuilder: (context, error, stackTrace) => const Icon(Icons.link, color: AppColors.white, size: 14),
+                          )
+                        : const Icon(Icons.link, color: AppColors.white, size: 14),
           ),
         );
       }
