@@ -1093,6 +1093,7 @@ class ApiClient {
     String? description,
     String? eventId,
     Map<String, dynamic>? gatewayInfo,
+    Map<String, dynamic>? metadata,
   }) async {
     try {
       // Backend expects integer, so we round the dollar amount to nearest integer (e.g. 2.89 -> 3)
@@ -1119,6 +1120,13 @@ class ApiClient {
         });
       }
 
+      if (metadata != null) {
+        requestData['metadata'] = metadata;
+        metadata.forEach((key, value) {
+          requestData['metadata[$key]'] = value.toString();
+        });
+      }
+print('=== createPaymentIntent API Response ===$requestData');
       final response = await _dio.postUri(
         ApiConfig.createPaymentIntent,
         data: requestData,

@@ -58,16 +58,15 @@ class _IframeWidgetState extends State<IframeWidget> {
       }
 
       if (videoId.isNotEmpty) {
-        // Use origin to avoid configuration errors (Error 153)
-        url = 'https://www.youtube.com/embed/$videoId?rel=0&modestbranding=1&enablejsapi=1&origin=https://youtube.com';
+        // Use origin matching Referer to avoid Error 152-4/153 and load privacy-enhanced embed
+        url = 'https://www.youtube-nocookie.com/embed/$videoId?rel=0&modestbranding=1&enablejsapi=1&origin=https://pamevent.com';
       }
     }
 
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(Colors.black)
-      // Use a consistent user agent
-      ..setUserAgent("Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36")
+      // Do not set a custom user agent by default to prevent triggering YouTube's bot/user-agent spoofing detection on iOS/Android
       ..setNavigationDelegate(
         NavigationDelegate(
           onProgress: (progress) {
@@ -96,7 +95,7 @@ class _IframeWidgetState extends State<IframeWidget> {
     _controller.loadRequest(
       Uri.parse(url.trim()),
       headers: {
-        'Referer': 'https://www.youtube.com/',
+        'Referer': 'https://pamevent.com/',
       },
     );
   }
@@ -179,24 +178,53 @@ class DescriptionHtml extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 2),
-                _buildHtml((faq['answer'] ?? faq['description'] ?? '').toString()),
+                _buildHtml(context, (faq['answer'] ?? faq['description'] ?? '').toString()),
               ],
             ),
           );
         }).toList(),
       );
     }
-    return _buildHtml(description);
+    return _buildHtml(context, description);
   }
 
-  Widget _buildHtml(String htmlData) {
+  Widget _buildHtml(BuildContext context, String htmlData) {
     if (htmlData.isEmpty || htmlData.toLowerCase().contains('no description available')) return const SizedBox.shrink();
 
-    // Aggressive cleaning of space-causing tags
-    String cleaned = htmlData
-        .replaceAll(RegExp(r'(&nbsp;|\s)+'), ' ')
-        .replaceAll(RegExp(r'(<p>\s*</p>|<p>&nbsp;</p>|<br\s*/?>\s*)+'), '')
+    // 1. Replace non-breaking spaces with standard spaces
+    String cleaned = htmlData.replaceAll('&nbsp;', ' ');
+
+    // 2. Strip width and height attributes from iframe tags so that flutter_html does not force layout heights
+    cleaned = cleaned.replaceAllMapped(RegExp(r'<iframe([^>]+)>', caseSensitive: false), (match) {
+      String attrs = match.group(1)!;
+      attrs = attrs
+          .replaceAll(RegExp(r'\b(width|height)\s*=\s*("[^"]*"|' r"'[^']*'" r'|[^\s>]+)', caseSensitive: false), '')
+          .trim();
+      return '<iframe $attrs>';
+    });
+
+    // 3. Recursively remove empty tags (even with attributes) and collapse spaces/breaks to eliminate vertical layout gaps
+    String previous;
+    do {
+      previous = cleaned;
+      cleaned = cleaned
+          .replaceAll(RegExp(r'<p[^>]*>[ \s]*</p>', caseSensitive: false), '')
+          .replaceAll(RegExp(r'<p[^>]*>[ \s]*<br\s*/?>[ \s]*</p>', caseSensitive: false), '')
+          .replaceAll(RegExp(r'<span[^>]*>[ \s]*</span>', caseSensitive: false), '')
+          .replaceAll(RegExp(r'<div[^>]*>[ \s]*</div>', caseSensitive: false), '')
+          .replaceAll(RegExp(r'(<br\s*/?>[ \s]*)+', caseSensitive: false), '<br />')
+          .trim();
+    } while (cleaned != previous);
+
+    // 4. Remove leading/trailing breaks
+    cleaned = cleaned
+        .replaceAll(RegExp(r'^(<br\s*/?>\s*)+', caseSensitive: false), '')
+        .replaceAll(RegExp(r'(<br\s*/?>\s*)+$', caseSensitive: false), '')
         .trim();
+
+    // Compute layout constraints for the WebView iframe based on the device width to prevent extra empty wrapper gaps
+    final double contentWidth = MediaQuery.of(context).size.width - 32.0; // Subtract padding: 16.0 left + 16.0 right
+    final double iframeHeight = contentWidth * 9 / 16; // Maintain 16:9 aspect ratio
 
     return Html(
       data: cleaned,
@@ -235,6 +263,12 @@ class DescriptionHtml extends StatelessWidget {
           margin: Margins.zero,
           padding: HtmlPaddings.zero,
           display: Display.block,
+          width: Width(contentWidth),
+          height: Height(iframeHeight),
+        ),
+        "hr": Style(
+          margin: Margins.only(top: 8, bottom: 8),
+          padding: HtmlPaddings.zero,
         ),
       },
     );

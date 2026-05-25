@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
+import 'dart:io';
 import '../../api/api.client.dart';
 import '../../helpers/app_colors.dart';
 import '../../helpers/app_state.dart';
@@ -14,6 +15,7 @@ import './order_success.screen.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:flutter_stripe/flutter_stripe.dart';
 import 'dart:developer';
+import 'package:dio/dio.dart';
 
 class PaymentWebviewWidget extends StatefulWidget {
   final String url;
@@ -586,6 +588,17 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
        }
        debugPrint('DEBUG: Generated Booking ID from API: $orderId');
 
+       // Fetch User IP address dynamically for device_browser and metadata
+       String userIp = 'Unknown';
+       try {
+         final ipRes = await Dio().get('https://api.ipify.org').timeout(const Duration(seconds: 3));
+         if (ipRes.statusCode == 200) {
+           userIp = ipRes.data.toString().trim();
+         }
+       } catch (e) {
+         debugPrint('Error fetching IP: $e');
+       }
+
        double finalProcessingFee = currentProcessingFee;
        double finalServiceFee = currentServiceFee;
        double finalSubTotal = widget.totalAmount;
@@ -651,6 +664,54 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
            'ticket_ids': widget.selectedTickets.map((e) => (e['ticket']['id'] ?? e['ticket']['ticket_id']).toString()).toList(),
        };
 
+       // Compute dynamic device_browser details
+       final double shortestSide = MediaQuery.of(context).size.shortestSide;
+       final bool isTabletDevice = shortestSide >= 600;
+       final bool isMobileDevice = Platform.isIOS || Platform.isAndroid;
+       final bool isDesktopDevice = Platform.isWindows || Platform.isMacOS || Platform.isLinux;
+
+       String deviceName = 'Unknown Device';
+       if (Platform.isIOS) {
+         deviceName = isTabletDevice ? 'iPad' : 'iPhone';
+       } else if (Platform.isAndroid) {
+         deviceName = isTabletDevice ? 'Android Tablet' : 'Android Phone';
+       } else if (Platform.isWindows) {
+         deviceName = 'Windows PC';
+       } else if (Platform.isMacOS) {
+         deviceName = 'Mac';
+       } else if (Platform.isLinux) {
+         deviceName = 'Linux Workstation';
+       }
+
+       final String osPlatform = Platform.isIOS ? 'iOS' : (Platform.isAndroid ? 'Android' : Platform.operatingSystem);
+       final String osVersion = Platform.operatingSystemVersion;
+       final int currentTimestampSeconds = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+
+       final dynamicRefundPolicy = _eventDetail?['refund_policy']?.toString().trim() ?? '';
+       final refundPolicyText = dynamicRefundPolicy.isNotEmpty ? dynamicRefundPolicy : 'Organizer rules apply';
+
+       final deviceBrowser = {
+         'device': deviceName,
+         'browser': 'App',
+         'platform': osPlatform,
+         'version': osVersion,
+         'is_mobile': isMobileDevice,
+         'is_tablet': isTabletDevice,
+         'is_desktop': isDesktopDevice,
+         'ip_address': userIp,
+         'accepted_terms': 'true',
+         'accepted_timestamp': currentTimestampSeconds,
+         'accepted_ip': userIp,
+         'policy_version': 'v1.0',
+         'refund_policy': refundPolicyText,
+         'chargeback_rule': 'No chargeback allowed',
+         'popup_text': 'Refunds depend on organizer policy. Chargebacks not allowed. No refund after attendance.',
+       };
+       map['device_browser'] = deviceBrowser;
+       deviceBrowser.forEach((key, value) {
+         map['device_browser[$key]'] = value;
+       });
+
        // Add gateway credentials to payload if available
        if (selectedGatewayInfo != null) {
          selectedGatewayInfo.forEach((key, value) {
@@ -707,15 +768,37 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             }
          }
        } else {
-         if (_selectedPaymentMethod == _stripeId) {
-             final piRes = await ApiClient.createPaymentIntent(
-               amount: totalToPay,
-               currency: 'USD',
-               bookingId: orderId,
-               description: 'Tickets for ${_eventDetail?['title'] ?? 'Event'}',
-               eventId: widget.eventId.toString(),
-               gatewayInfo: selectedGatewayInfo,
-             );
+          if (_selectedPaymentMethod == _stripeId) {
+              final String currentTimestamp = DateTime.now().toUtc().toIso8601String();
+              final String customerIdStr = AppState.profile?.id?.toString() ?? 'Guest';
+
+              final Map<String, dynamic> metadata = {
+                'event_name': _eventDetail?['title'] ?? 'Event Name',
+                'event_id': widget.eventId.toString(),
+                'accepted_terms': 'true',
+                'accepted_timestamp': currentTimestamp,
+                'accepted_ip': userIp,
+                'policy_version': 'v1.0',
+                'refund_policy': refundPolicyText,
+                'chargeback_rule': 'No chargeback allowed',
+                'accept_terms_and_conditions': 'I confirm that this purchase is authorized. I accept the event’s refund and entry policy, understand that tickets may be purchased for another attendee, and acknowledge that chargebacks are not permitted in accordance with the organizer’s policy.',
+                'customer_name': fname,
+                'customer_email': email,
+                'customer_phone': phone,
+                'user_id': customerIdStr,
+                'customer_id': customerIdStr,
+                'order_id': orderId,
+              };
+
+              final piRes = await ApiClient.createPaymentIntent(
+                amount: totalToPay,
+                currency: 'USD',
+                bookingId: orderId,
+                description: 'Tickets for ${_eventDetail?['title'] ?? 'Event'}',
+                eventId: widget.eventId.toString(),
+                gatewayInfo: selectedGatewayInfo,
+                metadata: metadata,
+              );
              
              if (piRes != null) {
                final clientSecret = piRes['client_secret']?.toString() ?? 
