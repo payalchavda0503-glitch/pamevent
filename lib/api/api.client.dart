@@ -1,4 +1,5 @@
 import 'dart:developer' as dev show log;
+import 'dart:convert';
 
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart' show DioForNative;
@@ -919,7 +920,7 @@ class ApiClient {
     try {
       final response = await _dio.postUri(
         ApiConfig.applyCoupon,
-        data: FormData.fromMap(form),
+        data: _convertToFormData(form),
       );
       if (response.data['status'] == 100) return response.data;
       handleToastMessage(response.data['message']);
@@ -934,7 +935,7 @@ class ApiClient {
     try {
       final response = await _dio.postUri(
         ApiConfig.applyReferral,
-        data: FormData.fromMap(form),
+        data: _convertToFormData(form),
       );
       if (response.data['status'] == 100) return response.data;
       handleToastMessage(response.data['message']);
@@ -1042,11 +1043,35 @@ class ApiClient {
     return null;
   }
 
+  static FormData _convertToFormData(Map<String, dynamic> data) {
+    final formData = FormData();
+    
+    data.forEach((key, value) {
+      if (value is List) {
+        for (var item in value) {
+          // Add list items sequentially with [] suffix
+          final String arrayKey = key.endsWith('[]') ? key : '$key[]';
+          formData.fields.add(MapEntry(arrayKey, item.toString()));
+        }
+      } else if (value is Map) {
+        // Handle nested maps (e.g., device_browser[device])
+        value.forEach((nestedKey, nestedValue) {
+          formData.fields.add(MapEntry('$key[$nestedKey]', nestedValue.toString()));
+        });
+      } else {
+        // Regular fields
+        formData.fields.add(MapEntry(key, value.toString()));
+      }
+    });
+
+    return formData;
+  }
+
   static Future<Map<String, dynamic>?> customerCheckout(Map<String, dynamic> body) async {
     try {
       final response = await _dio.postUri(
         ApiConfig.checkout,
-        data: FormData.fromMap(body),
+        data: _convertToFormData(body),
       );
       if (response.data['status'] == 100) return response.data;
       handleToastMessage(response.data['message']);
@@ -1061,7 +1086,7 @@ class ApiClient {
     try {
       final response = await _dio.postUri(
         ApiConfig.moncashPaymentUrl,
-        data: FormData.fromMap(body),
+        data: _convertToFormData(body),
       );
       if (response.data['status'] == 100) return response.data;
       handleToastMessage(response.data['message']);
@@ -1071,6 +1096,54 @@ class ApiClient {
     }
     return null;
   }
+
+  static Future<double> getServiceFee(Map<String, dynamic> body) async {
+      try {
+        debugPrint('DEBUG: Calling getServiceFee with repeated keys payload: $body');
+        
+        final response = await _dio.postUri(
+          ApiConfig.getServiceFee,
+          data: _convertToFormData(body),
+          options: Options(
+            headers: {
+              'Accept': 'application/json',
+            },
+          ),
+        );
+        
+        debugPrint('DEBUG: getServiceFee Status Code: ${response.statusCode}');
+        
+        final dynamic responseData = response.data;
+        debugPrint('DEBUG: getServiceFee Raw Response Data: $responseData');
+        
+        Map<String, dynamic> dataMap = {};
+        if (responseData is Map) {
+          dataMap = Map<String, dynamic>.from(responseData);
+        } else if (responseData is String && responseData.trim().isNotEmpty) {
+          try {
+            dataMap = jsonDecode(responseData.trim());
+          } catch (e) {
+            debugPrint('DEBUG: getServiceFee Error decoding String: $e');
+          }
+        }
+
+        if (dataMap.isNotEmpty) {
+          if (dataMap['status']?.toString() == '100') {
+            final data = dataMap['data'];
+            if (data is Map) {
+              final fee = double.tryParse(data['service_fee']?.toString() ?? '0') ?? 0.0;
+              debugPrint('DEBUG: getServiceFee Successfully extracted fee: $fee');
+              return fee;
+            }
+          } else {
+            debugPrint('DEBUG: getServiceFee API Error Message: ${dataMap['message']}');
+          }
+        }
+      } catch (e) {
+        debugPrint('DEBUG: getServiceFee Exception => $e');
+      }
+      return 0.0;
+    }
 
   static Future<String?> getBookingId() async {
     try {

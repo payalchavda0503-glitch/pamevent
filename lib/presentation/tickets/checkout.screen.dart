@@ -237,15 +237,73 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     }
     
     _fetchEventDetail();
+    _fetchApiServiceFee();
     // _initCheckoutFlow call will be handled inside _fetchEventDetail or after it
   }
+
+  Future<void> _fetchApiServiceFee() async {
+    final Map<String, dynamic> payload = {
+      'event_id': widget.eventId,
+      'discount': 0,
+      'admin_coupon_discount': _couponDiscount == 0 ? 0 : _couponDiscount,
+      'attendee_discount': 0,
+    };
+
+    // Build payload using indexed keys (like selTickets) to ensure interleaved format
+    for (int i = 0; i < widget.selectedTickets.length; i++) {
+      final item = widget.selectedTickets[i];
+      final ticket = item['ticket'];
+      final count = item['count'];
+      
+      final String tId = (ticket['id'] ?? ticket['ticket_id']).toString();
+      String name = '';
+      
+      double ticketPrice = 0;
+      if (ticket['is_variation']?.toString() == '1' && ticket['variations'] is List && (ticket['variations'] as List).isNotEmpty) {
+        final variation = (ticket['variations'] as List).first;
+        name = (variation['name'] ?? variation['title'] ?? ticket['name'] ?? ticket['title'] ?? 'Ticket').toString();
+        ticketPrice = double.tryParse(variation['final_price']?.toString() ?? variation['price']?.toString() ?? '0') ?? 0;
+      } else {
+        name = (ticket['name'] ?? ticket['title'] ?? ticket['ticket_type'] ?? 'Ticket').toString();
+        ticketPrice = double.tryParse(ticket['final_price']?.toString() ?? ticket['f_price'] ?? ticket['price']?.toString() ?? '0') ?? 0;
+      }
+
+      // Use indexed keys matching "selTickets" reference as requested by user
+      payload['selTickets[$i][ticket_id]'] = tId;
+      payload['selTickets[$i][qty]'] = count;
+      
+      // If it's a whole number, send as int to avoid .0
+      if (ticketPrice == ticketPrice.toInt()) {
+        payload['selTickets[$i][price]'] = ticketPrice.toInt();
+      } else {
+        payload['selTickets[$i][price]'] = ticketPrice;
+      }
+      
+      payload['selTickets[$i][name]'] = name;
+      payload['selTickets[$i][early_bird_discount]'] = 0; 
+      payload['selTickets[$i][max_ticket_redemption]'] = 1; 
+      payload['selTickets[$i][absorb_fee_tickets]'] = 0; 
+      payload['selTickets[$i][qty_ticket_per_table]'] = 1; 
+    }
+    
+    debugPrint('DEBUG: Calling getServiceFee with payload: $payload');
+    final fee = await ApiClient.getServiceFee(payload);
+    if (mounted) {
+      setState(() {
+        _apiServiceFee = fee;
+      });
+      debugPrint('DEBUG: Updated Service Fee from API: $_apiServiceFee');
+    }
+  }
+
+  double _apiServiceFee = 0.0;
 
   bool get isFreeOrder => widget.totalAmount <= 0;
 
   double get currentServiceFee {
     if (isFreeOrder) return 0.0;
-    // Base service fee from previous screen, rounded to 2 decimal places
-    return double.parse(widget.serviceFee.toStringAsFixed(2));
+    // Use API fee, default to 0.00 as requested
+    return double.parse((_apiServiceFee + 0.00001).toStringAsFixed(2));
   }
 
   double get currentProcessingFee {
@@ -270,7 +328,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     final double percAmount = (subtotal / 100) * feePerc;
     final totalFee = percAmount + feeCents;
     
-    final roundedFee = double.parse(totalFee.toStringAsFixed(2));
+    final roundedFee = double.parse((totalFee + 0.00001).toStringAsFixed(2));
     debugPrint('DEBUG: Selected Gateway: ${_selectedPaymentMethod}, Subtotal: $subtotal, FeePerc: $feePerc, FeeCents: $feeCents, Calculated Processing Fee: $totalFee, Rounded: $roundedFee');
     
     return roundedFee;
@@ -278,7 +336,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
   double get grandTotal {
     final total = widget.totalAmount + currentServiceFee + currentProcessingFee - _couponDiscount - _referralDiscount;
-    return double.parse(total.toStringAsFixed(2));
+    return double.parse((total + 0.00001).toStringAsFixed(2));
   }
 
   Future<void> _fetchEventDetail() async {
@@ -297,14 +355,21 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         }
 
         if (gateways.isNotEmpty) {
-           // Filter out duplicates (only keep items that have an ID and unique keywords)
+           // Filter out duplicates (only keep items that have a unique keyword)
            final Map<String, Map<String, dynamic>> uniqueGateways = {};
            for (var g in gateways) {
              if (g is! Map) continue;
-             final id = g['id']?.toString() ?? '';
-             final keyword = g['keyword']?.toString().toLowerCase() ?? '';
-             if (id.isNotEmpty && keyword.isNotEmpty && !uniqueGateways.containsKey(keyword)) {
-                uniqueGateways[keyword] = Map<String, dynamic>.from(g);
+             
+             final name = g['name']?.toString() ?? 'Payment';
+             // Use name as fallback if id or keyword is missing
+             final id = g['id']?.toString() ?? name;
+             final keyword = g['keyword']?.toString().toLowerCase() ?? name.toLowerCase();
+             
+             if (keyword.isNotEmpty && !uniqueGateways.containsKey(keyword)) {
+                final Map<String, dynamic> gatewayData = Map<String, dynamic>.from(g);
+                gatewayData['id'] = id;
+                gatewayData['keyword'] = keyword;
+                uniqueGateways[keyword] = gatewayData;
              }
            }
 
@@ -405,6 +470,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
        }
     }
     
+    /*
     final String? firstTicketId = widget.selectedTickets.isNotEmpty 
           ? (widget.selectedTickets.first['ticket']['id'] ?? widget.selectedTickets.first['ticket']['ticket_id'])?.toString() 
           : null;
@@ -418,6 +484,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
            ? (widget.selectedTickets.first['ticket']['title'] ?? widget.selectedTickets.first['ticket']['name'] ?? 'Ticket').toString() 
            : 'Ticket';
        await ApiClient.customerAddToCart(widget.eventId, ticketId: firstTicketId, qty: firstTicketQty, price: firstTicketPrice, name: firstTicketName);
+    */
     
     final gatewaysData = await ApiClient.customerGetPaymentGateways();
     print('GET GATEWAYS RESPONSE: $gatewaysData');
@@ -511,6 +578,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       setState(() {
         _couponDiscount = double.tryParse(res['discount']?.toString() ?? '0') ?? 0.0;
       });
+      await _fetchApiServiceFee();
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Coupon applied!')));
     }
   }
@@ -528,7 +596,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       'qty_ticket_per_tables': '1',
       'ticket_ids': widget.selectedTickets.map((e) => (e['ticket']['id'] ?? e['ticket']['ticket_id']).toString()).toList(),
       'early_bird_dicounts': widget.selectedTickets.map((e) => '0').toList(),
-      'names': widget.selectedTickets.map((e) => (e['ticket']['title'] ?? e['ticket']['name'] ?? 'Ticket').toString()).toList(),
+      'names': widget.selectedTickets.map((e) => (e['ticket']['name'] ?? e['ticket']['title'] ?? 'Ticket').toString()).toList(),
       'qtys': widget.selectedTickets.map((e) => e['count'].toString()).toList(),
       'prices': widget.selectedTickets.map((e) => (e['ticket']['price'] ?? '0').toString()).toList(),
       'max_ticket_redemptions': widget.selectedTickets.map((e) => '1').toList(),
@@ -539,6 +607,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       setState(() {
         _referralDiscount = double.tryParse(res['discount']?.toString() ?? '0') ?? 0.0;
       });
+      await _fetchApiServiceFee();
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Referral applied!')));
     }
   }
@@ -630,13 +699,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
            }
          }
        }
-
        final map = <String, dynamic>{
            'booking_id': orderId, 
            'event_id': widget.eventId.toString(),
            'event_name': _eventDetail?['title'] ?? 'Event',
            'fname': fname,
-           'country_code': '+91', 
            'phone': phone,
            'email': email,
            're_enter_email': reEmail,
@@ -646,6 +713,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
            'quantity': widget.selectedTickets.fold<int>(0, (sum, e) => sum + (e['count'] as int)).toString(),
            'processing_fee': processingFeeStr,
            'service_fee': serviceFeeStr,
+           'fee':serviceFeeStr,
            'ticket_fees': serviceFeeStr, // Keeping both for compatibility
            'coupon': _couponController.text.isEmpty ? '0' : _couponController.text,
            'referral_code': _referralController.text.isEmpty ? '0' : _referralController.text,
@@ -658,7 +726,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
            'discount': '0',
            'total_early_bird_discount': '0',
            'sub_total': finalSubTotal.toStringAsFixed(2),
-           'grand_total': totalToPay.toStringAsFixed(2),
+           'grand_total':  finalSubTotal.toStringAsFixed(2),
            'ticket_id': widget.selectedTickets.isNotEmpty ? (widget.selectedTickets.first['ticket']['id'] ?? widget.selectedTickets.first['ticket']['ticket_id']).toString() : '',
            'tickets_id': widget.selectedTickets.isNotEmpty ? (widget.selectedTickets.first['ticket']['id'] ?? widget.selectedTickets.first['ticket']['ticket_id']).toString() : '',
            'ticket_ids': widget.selectedTickets.map((e) => (e['ticket']['id'] ?? e['ticket']['ticket_id']).toString()).toList(),
@@ -723,8 +791,17 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           final t = widget.selectedTickets[i]['ticket'];
           final count = widget.selectedTickets[i]['count'];
           final tId = (t['id'] ?? t['ticket_id'] ?? '').toString();
-          final title = (t['title'] ?? t['name'] ?? 'Ticket').toString();
-          final price = (t['price'] ?? '0').toString();
+          String title = '';
+          
+          double price = 0;
+          if (t['is_variation']?.toString() == '1' && t['variations'] is List && (t['variations'] as List).isNotEmpty) {
+            final variation = (t['variations'] as List).first;
+            title = (variation['name'] ?? variation['title'] ?? t['name'] ?? t['title'] ?? 'Ticket').toString();
+            price = double.tryParse(variation['final_price']?.toString() ?? variation['price']?.toString() ?? '0') ?? 0;
+          } else {
+            title = (t['name'] ?? t['title'] ?? t['ticket_type'] ?? 'Ticket').toString();
+            price = double.tryParse(t['final_price']?.toString() ?? t['f_price'] ?? t['price']?.toString() ?? '0') ?? 0;
+          }
 
           map['selTickets[$i][ticket_id]'] = tId;
           map['selTickets[$i][tickets_id]'] = tId; // Adding plural key inside array just in case
@@ -732,7 +809,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           map['selTickets[$i][early_bird_discount]'] = '0';
           map['selTickets[$i][name]'] = title;
           map['selTickets[$i][qty]'] = count.toString();
-          map['selTickets[$i][price]'] = price;
+          map['selTickets[$i][price]'] = price.toString();
           map['selTickets[$i][max_ticket_redemption]'] = '1';
           map['selTickets[$i][absorb_fee_tickets]'] = '0';
           map['selTickets[$i][qty_ticket_per_table]'] = '1';
@@ -840,7 +917,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                      
                      AppState.hideLoader();
                      await Stripe.instance.presentPaymentSheet();
-                     
+                     print('payload-------$map');
                      AppState.showLoader();
                      final checkoutRes = await ApiClient.customerCheckout(map);
                      
@@ -909,6 +986,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             if (piRes != null) {
                final paymentData = piRes['data'] is Map ? piRes['data'] : piRes;
                final String? paymentUrl = (paymentData['url'] ?? paymentData['redirect_url'])?.toString();
+               // Extract the moncash_order_id/booking_id from the payment URL API response
+               final String? moncashOrderIdFromApi = paymentData['booking_id']?.toString() ?? paymentData['moncash_order_id']?.toString();
                
                AppState.hideLoader();
                
@@ -930,19 +1009,21 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                       if (mounted) {
                         if (paymentResult != null && paymentResult['success'] == true) {
                           // 2. Call checkout API ONLY after payment is successful
-                          // Pass moncash_order_id and transactionId from WebView
+                          // Pass moncash_order_id (from API) and transaction_id (from WebView)
                           AppState.showLoader();
                           
                           final finalCheckoutMap = Map<String, dynamic>.from(map);
-                          if (paymentResult['moncash_order_id'] != null) {
-                            finalCheckoutMap['moncash_order_id'] = paymentResult['moncash_order_id'];
-                          }
-                          if (paymentResult['transactionId'] != null) {
-                            finalCheckoutMap['transactionId'] = paymentResult['transactionId'];
-                          }
-
-                          final checkoutRes = await ApiClient.customerCheckout(finalCheckoutMap);
                           
+                          // Priority 1: Use the booking_id we got from the moncashPaymentUrl API response
+                          // Priority 2: Fallback to whatever returned from WebView
+                          finalCheckoutMap['moncash_order_id'] = moncashOrderIdFromApi ?? paymentResult['moncash_order_id'] ?? orderId;
+                          
+                          if (paymentResult['transactionId'] != null) {
+                            finalCheckoutMap['transaction_id'] = paymentResult['transactionId'];
+                          }
+print('finalcheckout------$finalCheckoutMap');
+                          final checkoutRes = await ApiClient.customerCheckout(finalCheckoutMap);
+                          print('check out response $checkoutRes');
                           if (checkoutRes != null && checkoutRes['status'] == 100) {
                             final String? internalId = _extractInternalIdFromResponse(checkoutRes);
                             final String? displayBookingId = _extractDisplayBookingIdFromResponse(checkoutRes);
@@ -1396,15 +1477,45 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         ...widget.selectedTickets.map((item) {
           final ticket = item['ticket'];
           final count = item['count'];
-          final title = ticket['title'] ?? ticket['name'] ?? ticket['ticket_type'] ?? 'Ticket';
-          final price = double.tryParse(ticket['price']?.toString() ?? '0') ?? 0;
+          String title = ticket['name'] ?? ticket['title'] ?? ticket['ticket_type'] ?? 'Ticket';
+          
+          double finalPrice = 0;
+          double originalPrice = 0;
+          
+          if (ticket['is_variation']?.toString() == '1' && ticket['variations'] is List && (ticket['variations'] as List).isNotEmpty) {
+            final variation = (ticket['variations'] as List).first;
+            title = variation['name']?.toString() ?? title;
+            finalPrice = double.tryParse(variation['final_price']?.toString() ?? variation['price']?.toString() ?? '0') ?? 0;
+            originalPrice = double.tryParse(variation['price']?.toString() ?? '0') ?? 0;
+          } else {
+            finalPrice = double.tryParse(ticket['final_price']?.toString() ?? ticket['f_price'] ?? ticket['price']?.toString() ?? '0') ?? 0;
+            originalPrice = double.tryParse(ticket['price']?.toString() ?? '0') ?? 0;
+          }
+
           return Padding(
             padding: const EdgeInsets.only(bottom: 12.0),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(child: Text(title, style: const TextStyle(fontSize: 14))),
-                Text('$count X \$${price.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.w600)),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      '$count X \$${finalPrice.toStringAsFixed(2)}', 
+                      style: const TextStyle(fontWeight: FontWeight.w600)
+                    ),
+                    if (finalPrice < originalPrice && originalPrice > 0)
+                      Text(
+                        '\$${originalPrice.toStringAsFixed(2)}',
+                        style: const TextStyle(
+                          fontSize: 12, 
+                          color: Colors.grey, 
+                          decoration: TextDecoration.lineThrough
+                        ),
+                      ),
+                  ],
+                ),
               ],
             ),
           );
@@ -1415,10 +1526,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         _buildSummaryRow('Ticket Price', '\$${widget.totalAmount.toStringAsFixed(2)}'),
         const SizedBox(height: 12),
         _buildSummaryRow('Subtotal', '\$${widget.totalAmount.toStringAsFixed(2)}'),
-        if (currentServiceFee > 0) ...[
-          const SizedBox(height: 12),
-          _buildSummaryRow('Service Fee', '+ \$${currentServiceFee.toStringAsFixed(2)}'),
-        ],
+        const SizedBox(height: 12),
+        _buildSummaryRow('Service Fee', '+ \$${currentServiceFee.toStringAsFixed(2)}'),
         if (currentProcessingFee > 0) ...[
           const SizedBox(height: 12),
           _buildSummaryRow('Processing Fee', '+ \$${currentProcessingFee.toStringAsFixed(2)}'),

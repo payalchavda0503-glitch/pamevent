@@ -17,6 +17,7 @@ class MainLayout extends StatefulWidget {
 class _MainLayoutState extends State<MainLayout> {
   late int _selectedIndex;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  final GlobalKey<HomeScreenState> _homeKey = GlobalKey<HomeScreenState>();
 
   @override
   void initState() {
@@ -25,6 +26,9 @@ class _MainLayoutState extends State<MainLayout> {
   }
 
   void _onItemTapped(int index) {
+    if (_selectedIndex == index && index == 0) {
+      _homeKey.currentState?.scrollToTop();
+    }
     setState(() {
       _selectedIndex = index;
     });
@@ -34,6 +38,7 @@ class _MainLayoutState extends State<MainLayout> {
   Widget build(BuildContext context) {
     final List<Widget> _screens = [
       HomeScreen(
+        key: _homeKey,
         onMenuTap: () => _scaffoldKey.currentState?.openDrawer(),
         onSearchTap: () => _onItemTapped(1),
       ),

@@ -4,6 +4,7 @@ import '../../api/api.client.dart';
 import '../../helpers/app_colors.dart';
 import '../../helpers/public_url.dart';
 import '../shared/widgets/custom_image.dart';
+import '../shared/widgets/app_drawer.widget.dart';
 import 'venue_details.screen.dart';
 
 class VenuesListScreen extends StatefulWidget {
@@ -16,6 +17,7 @@ class VenuesListScreen extends StatefulWidget {
 }
 
 class _VenuesListScreenState extends State<VenuesListScreen> {
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   List<dynamic> _venues = [];
   bool _isLoading = true;
   final TextEditingController _searchController = TextEditingController();
@@ -71,54 +73,90 @@ class _VenuesListScreenState extends State<VenuesListScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      key: _scaffoldKey,
       backgroundColor: AppColors.white,
+      drawer: const AppDrawer(),
       appBar: AppBar(
-        backgroundColor: AppColors.white,
+        backgroundColor: const Color(0xFF1B0C40), // Dark theme header
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.menu, color: AppColors.black),
-          onPressed: widget.onMenuTap,
+          icon: const Icon(Icons.menu, color: AppColors.white),
+          onPressed: () {
+            if (widget.onMenuTap != null) {
+              widget.onMenuTap!();
+            } else {
+              _scaffoldKey.currentState?.openDrawer();
+            }
+          },
         ),
         title: const Text(
-          'Venues',
-          style: TextStyle(color: AppColors.black, fontWeight: FontWeight.bold),
+          'Venue',
+          style: TextStyle(color: AppColors.white, fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
       ),
       body: SafeArea(
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Search Bar
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF5F5F5),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.lightGrey),
-                ),
-                child: TextField(
-                  controller: _searchController,
-                  onChanged: _onSearchChanged,
-                  decoration: InputDecoration(
-                    hintText: 'Search venues...',
-                    hintStyle: const TextStyle(color: AppColors.grey, fontSize: 14),
-                    prefixIcon: const Icon(Icons.search, color: AppColors.grey),
-                    suffixIcon: _searchController.text.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(Icons.close, color: AppColors.grey, size: 20),
-                            onPressed: () {
-                              _searchController.clear();
-                              _onSearchChanged('');
-                            },
-                          )
-                        : null,
-                    border: InputBorder.none,
-                    contentPadding: const EdgeInsets.symmetric(vertical: 12),
+            // Header with Search Bar
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.only(bottom: 24),
+              decoration: const BoxDecoration(
+                color: Color(0xFF1B0C40),
+              ),
+              child: Column(
+                children: [
+                  const SizedBox(height: 10),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Container(
+                      height: 45,
+                      decoration: BoxDecoration(
+                        color: AppColors.white,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: TextField(
+                        controller: _searchController,
+                        onChanged: _onSearchChanged,
+                        decoration: InputDecoration(
+                          hintText: 'Search venues...',
+                          hintStyle: const TextStyle(color: AppColors.grey, fontSize: 13),
+                          prefixIcon: const Icon(Icons.search, color: AppColors.grey, size: 20),
+                          suffixIcon: _searchController.text.isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(Icons.close, color: AppColors.grey, size: 18),
+                                  onPressed: () {
+                                    _searchController.clear();
+                                    _onSearchChanged('');
+                                  },
+                                )
+                              : null,
+                          border: InputBorder.none,
+                          contentPadding: const EdgeInsets.symmetric(vertical: 11),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            
+            // Total Venue showing label
+            if (!_isLoading && _venues.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 24, 20, 16),
+                child: Text(
+                  'Total Venue showing: ${_venues.length}',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.black,
                   ),
                 ),
               ),
-            ),
+
             Expanded(
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator())
@@ -130,19 +168,21 @@ class _VenuesListScreenState extends State<VenuesListScreen> {
                           ),
                         )
                       : GridView.builder(
-                           padding: const EdgeInsets.only(left: 16, right: 16, bottom: 16),
+                           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                                crossAxisCount: 2,
                                crossAxisSpacing: 16,
                                mainAxisSpacing: 16,
-                               childAspectRatio: 1.5, // Increased from 1.3 to reduce card height/bottom space
+                               childAspectRatio: 0.95, // Reduced slightly to give more vertical space
                              ),
                           itemCount: _venues.length,
                           itemBuilder: (context, index) {
                             final venue = _venues[index];
+                            final eventCount = venue['event_count']?.toString() ?? '0';
                             return _buildVenueItem(
                               name: venue['venue'] ?? venue['name'] ?? 'Venue',
                               address: venue['address'] ?? '${venue['city'] ?? ''}, ${venue['country'] ?? ''}',
+                              eventCount: eventCount,
                               venueData: venue,
                             );
                           },
@@ -157,6 +197,7 @@ class _VenuesListScreenState extends State<VenuesListScreen> {
   Widget _buildVenueItem({
     required String name,
     required String address,
+    required String eventCount,
     required dynamic venueData,
   }) {
     return GestureDetector(
@@ -177,12 +218,11 @@ class _VenuesListScreenState extends State<VenuesListScreen> {
       child: Container(
         decoration: BoxDecoration(
           color: AppColors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.lightGrey.withOpacity(0.5)),
+          borderRadius: BorderRadius.circular(4),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 10,
+              color: Colors.black.withOpacity(0.08),
+              blurRadius: 15,
               offset: const Offset(0, 4),
             ),
           ],
@@ -190,36 +230,51 @@ class _VenuesListScreenState extends State<VenuesListScreen> {
         child: Padding(
           padding: const EdgeInsets.all(12.0),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.start, // Align to top to be safer against overflows
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text(
-                name,
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
+              Flexible(
+                child: Text(
+                  name,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                    color: AppColors.black,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                 ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
               ),
               const SizedBox(height: 6),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Icon(Icons.location_on, size: 12, color: AppColors.grey),
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: Text(
-                      address,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: AppColors.grey,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
+              Flexible(
+                child: Text(
+                  address,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppColors.black,
+                    fontWeight: FontWeight.w500,
                   ),
-                ],
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                '$eventCount Event',
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: AppColors.grey,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'View',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.black,
+                ),
               ),
             ],
           ),

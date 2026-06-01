@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../api/api.client.dart';
 import '../../helpers/app_colors.dart';
+import '../../helpers/public_url.dart';
 import '../shared/widgets/custom_button.widget.dart';
 import '../shared/widgets/price_display.widget.dart';
 import 'checkout.screen.dart';
@@ -41,42 +42,6 @@ class _SelectTicketsScreenState extends State<SelectTicketsScreen> {
     _fetchTickets();
   }
 
-  double _calculateTotalServiceFee() {
-    double totalFee = 0;
-    if (_tickets.isEmpty) return 0;
-    
-    // Get fee config from API data
-    // Assuming these are at the root of the ticket details response or in the first ticket
-    // Based on user input, these are in the response
-    final data = _tickets.firstWhere((t) => true, orElse: () => {}); // Just to get context if needed, but better from root
-    
-    // We'll need the root data which we saved in _fetchTickets if we want to be precise.
-    // Let's assume they are available in the state if we store them.
-    
-    for (int i = 0; i < _tickets.length; i++) {
-      final ticket = _tickets[i];
-      final int count = _ticketCounts[i] ?? 0;
-      if (count <= 0) continue;
-
-      final double price = double.tryParse((ticket['price'])?.toString() ?? '0') ?? 0;
-      final double finalPrice = double.tryParse((ticket['final_price'] ?? ticket['price'])?.toString() ?? '0') ?? 0;
-      final double discount = price - finalPrice;
-      
-      final double perTicketPerc = double.tryParse((ticket['fee_per_ticket_perc'] ?? _serviceFeePerc).toString()) ?? 0;
-      final double perTicketAmount = double.tryParse((ticket['fee_per_ticket_amount'] ?? _serviceFeeAmount).toString()) ?? 0;
-      
-      final double priceNew = price - discount;
-      
-      // If the ticket is free, the service fee should also be zero
-      final double feePerTicket = priceNew <= 0 
-          ? 0.0 
-          : ((perTicketPerc / 100) * priceNew) + perTicketAmount;
-      
-      totalFee += count * feePerTicket;
-    }
-    return totalFee;
-  }
-
   double _serviceFeePerc = 0.0;
   double _serviceFeeAmount = 0.0;
 
@@ -87,17 +52,20 @@ class _SelectTicketsScreenState extends State<SelectTicketsScreen> {
     if (mounted) {
       setState(() {
         if (data is List) {
-          _tickets = data;
+          _tickets = data.where((t) => t is Map && t['is_hide_tickets']?.toString() != '1').toList();
         } else if (data is Map) {
+          List<dynamic> rawTickets = [];
           if (data['tickets'] is List) {
-            _tickets = data['tickets'];
+            rawTickets = data['tickets'];
           } else if (data['ticket_types'] is List) {
-            _tickets = data['ticket_types'];
+            rawTickets = data['ticket_types'];
           } else if (data['ticket_detail'] is List) {
-            _tickets = data['ticket_detail'];
+            rawTickets = data['ticket_detail'];
           } else {
-             _tickets = [data]; 
+             rawTickets = [data]; 
           }
+          
+          _tickets = rawTickets.where((t) => t is Map && t['is_hide_tickets']?.toString() != '1').toList();
           
           // Dynamic fee config from API or passed from previous screen
           _serviceFeePerc = widget.feePerTicketPerc ?? double.tryParse((data['fee_per_ticket_perc'] ?? 0.0).toString()) ?? 0.0;
@@ -133,7 +101,16 @@ class _SelectTicketsScreenState extends State<SelectTicketsScreen> {
     double total = 0;
     for (int i = 0; i < _tickets.length; i++) {
       int count = _ticketCounts[i] ?? 0;
-      double price = double.tryParse((_tickets[i]['final_price'] ?? _tickets[i]['price'])?.toString() ?? '0') ?? 0;
+      final ticket = _tickets[i];
+      
+      double price = 0;
+      if (ticket['is_variation']?.toString() == '1' && ticket['variations'] is List && (ticket['variations'] as List).isNotEmpty) {
+        final variation = (ticket['variations'] as List).first;
+        price = double.tryParse(variation['final_price']?.toString() ?? variation['price']?.toString() ?? '0') ?? 0;
+      } else {
+        price = double.tryParse(ticket['final_price']?.toString() ?? ticket['f_price']?.toString() ?? ticket['price']?.toString() ?? '0') ?? 0;
+      }
+      
       total += count * price;
     }
     return total;
@@ -151,8 +128,8 @@ class _SelectTicketsScreenState extends State<SelectTicketsScreen> {
   Widget build(BuildContext context) {
     double ticketsTotal = _calculateTicketsTotal();
     int totalTickets = _calculateTotalTickets();
-    double currentServiceFee = _calculateTotalServiceFee();
-    double total = ticketsTotal + currentServiceFee;
+    // Use only ticketsTotal for the display total as per user request
+    double total = ticketsTotal;
 
     return Scaffold(
       backgroundColor: AppColors.white,
@@ -292,11 +269,44 @@ class _SelectTicketsScreenState extends State<SelectTicketsScreen> {
                       itemCount: _tickets.length,
                       itemBuilder: (context, index) {
                         final ticket = _tickets[index];
-                        final title = ticket['title'] ?? ticket['name'] ?? ticket['ticket_type'] ?? 'Ticket';
+                        
+                        String title = ticket['title'] ?? ticket['name'] ?? ticket['ticket_type'] ?? 'Ticket';
                         final description = ticket['description']?.toString() ?? '';
                         
-                        final originalPrice = double.tryParse(ticket['price']?.toString() ?? '0') ?? 0;
-                        final finalPrice = double.tryParse(ticket['final_price']?.toString() ?? ticket['price']?.toString() ?? '0') ?? 0;
+                        // Extract numeric prices
+                        double finalPrice = 0;
+                        double originalPrice = 0;
+
+                        // Quantity Limits Logic (Base values)
+                        String minBuyStr = ticket['min_buy_ticket']?.toString().toLowerCase() ?? '1';
+                        String maxBuyStr = ticket['max_buy_ticket']?.toString().toLowerCase() ?? 'unlimited';
+                        String stockStr = ticket['stock']?.toString().toLowerCase() ?? ticket['ticket_available']?.toString().toLowerCase() ?? 'unlimited';
+                        String availType = ticket['ticket_available_type']?.toString().toLowerCase() ?? 'unlimited';
+
+                        if (ticket['is_variation']?.toString() == '1' && ticket['variations'] is List && (ticket['variations'] as List).isNotEmpty) {
+                          final variation = (ticket['variations'] as List).first;
+                          title = variation['name']?.toString() ?? title;
+                          finalPrice = double.tryParse(variation['final_price']?.toString() ?? variation['price']?.toString() ?? '0') ?? 0;
+                          originalPrice = double.tryParse(variation['price']?.toString() ?? '0') ?? 0;
+                          
+                          // Variation might override limits
+                          if (variation.containsKey('stock')) stockStr = variation['stock']?.toString().toLowerCase() ?? stockStr;
+                          if (variation.containsKey('ticket_available')) stockStr = variation['ticket_available']?.toString().toLowerCase() ?? stockStr;
+                          if (variation.containsKey('min_buy_ticket')) minBuyStr = variation['min_buy_ticket']?.toString().toLowerCase() ?? minBuyStr;
+                          if (variation.containsKey('max_buy_ticket')) maxBuyStr = variation['max_buy_ticket']?.toString().toLowerCase() ?? maxBuyStr;
+                          if (variation.containsKey('ticket_available_type')) availType = variation['ticket_available_type']?.toString().toLowerCase() ?? availType;
+                        } else {
+                          finalPrice = double.tryParse(ticket['final_price']?.toString() ?? ticket['f_price']?.toString() ?? ticket['price']?.toString() ?? '0') ?? 0;
+                          originalPrice = double.tryParse(ticket['price']?.toString() ?? '0') ?? 0;
+                        }
+                        
+                        // Use formatPrice helper for consistent display logic
+                        final priceText = formatPrice(finalPrice);
+                        
+                        // If f_price is 0, fallback to other price fields for internal logic
+                        if (finalPrice <= 0) {
+                          finalPrice = double.tryParse(ticket['final_price']?.toString() ?? ticket['price']?.toString() ?? '0') ?? 0;
+                        }
                         
                         final earlyBirdEnabled = ticket['early_bird_discount']?.toString() == 'enable';
                         final discountDate = ticket['early_bird_discount_date']?.toString() ?? '';
@@ -310,17 +320,38 @@ class _SelectTicketsScreenState extends State<SelectTicketsScreen> {
                           l['label']?.toString().toLowerCase() == 'soldout'
                         );
 
+                        // Parse Limits into integers
+                        int minBuy = (minBuyStr == 'unlimited' || minBuyStr == '0') ? 1 : (int.tryParse(minBuyStr) ?? 1);
+                        int maxBuy = maxBuyStr == 'unlimited' ? 999 : (int.tryParse(maxBuyStr) ?? 999);
+                        
+                        // ticket_available_type & stock/ticket_available logic
+                        if (availType == 'limited' && stockStr != 'unlimited') {
+                          int stockValue = int.tryParse(stockStr) ?? 0;
+                          if (stockValue <= 0) {
+                            isSoldOut = true;
+                          }
+                          // Max buy cannot exceed available stock
+                          if (stockValue < maxBuy) maxBuy = stockValue;
+                        } else if (availType == 'unlimited' || stockStr == 'unlimited') {
+                          // If unlimited, we use a high number for maxBuy (999) unless maxBuyStr was a specific lower number
+                          if (maxBuyStr == 'unlimited') {
+                            maxBuy = 999;
+                          }
+                        }
+
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 16),
                           child: _buildTicketTypeCard(
                             title: title,
                             description: description,
-                            price: '\$${finalPrice.toStringAsFixed(2)}',
-                            originalPrice: finalPrice < originalPrice ? '\$${originalPrice.toStringAsFixed(2)}' : null,
+                            price: priceText,
+                            originalPrice: (finalPrice < originalPrice && originalPrice > 0) ? formatPrice(originalPrice) : null,
                             discountInfo: earlyBirdEnabled ? 'Discount available : (till : $discountDate $discountTime )' : null,
                             labels: labels,
                             isSoldOut: isSoldOut,
                             count: _ticketCounts[index] ?? 0,
+                            minBuy: minBuy,
+                            maxBuy: maxBuy,
                             onCountChanged: (val) => setState(() => _ticketCounts[index] = val),
                           ),
                         );
@@ -352,7 +383,7 @@ class _SelectTicketsScreenState extends State<SelectTicketsScreen> {
                         style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                       ),
                       Text(
-                        '\$${total.toStringAsFixed(2)}',
+                        total == 0 ? '\$0.00' : formatPrice(total),
                         style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                       ),
                     ],
@@ -386,7 +417,6 @@ class _SelectTicketsScreenState extends State<SelectTicketsScreen> {
                           eventId: widget.eventId,
                           selectedTickets: selected,
                           totalAmount: ticketsTotal,
-                          serviceFee: currentServiceFee,
                           processingFee: _processingFee,
                           gateways: widget.gateways,
                         ),
@@ -413,6 +443,8 @@ class _SelectTicketsScreenState extends State<SelectTicketsScreen> {
     required List<dynamic> labels,
     required int count,
     required Function(int) onCountChanged,
+    int minBuy = 1,
+    int maxBuy = 999,
     bool isSoldOut = false,
   }) {
     final ValueNotifier<bool> isExpanded = ValueNotifier<bool>(false);
@@ -559,8 +591,14 @@ class _SelectTicketsScreenState extends State<SelectTicketsScreen> {
                     children: [
                       _buildCountButton(
                         Icons.remove, 
-                        isSoldOut ? null : () {
-                          if (count > 0) onCountChanged(count - 1);
+                        (isSoldOut || count <= 0) ? null : () {
+                          if (count > minBuy) {
+                            onCountChanged(count - 1);
+                          } else if (count == minBuy) {
+                            onCountChanged(0);
+                          } else {
+                            onCountChanged(0);
+                          }
                         },
                         isEnabled: !isSoldOut && count > 0,
                       ),
@@ -578,10 +616,14 @@ class _SelectTicketsScreenState extends State<SelectTicketsScreen> {
                       ),
                       _buildCountButton(
                         Icons.add, 
-                        isSoldOut ? null : () {
-                          onCountChanged(count + 1);
+                        (isSoldOut || count >= maxBuy) ? null : () {
+                          if (count == 0) {
+                            onCountChanged(minBuy);
+                          } else if (count < maxBuy) {
+                            onCountChanged(count + 1);
+                          }
                         },
-                        isEnabled: !isSoldOut,
+                        isEnabled: !isSoldOut && count < maxBuy,
                       ),
                     ],
                   ),

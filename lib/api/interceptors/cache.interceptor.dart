@@ -46,10 +46,6 @@ class CacheInterceptor extends Interceptor {
     final cacheKey = getCacheKey(err.requestOptions);
     if (connectionError) {
       if (AppState.prefs.containsKey(cacheKey)) {
-        ToastService.show(
-          'Notice: Offline mode active. Sync to update ticket data.',
-          backgroundColor: AppColors.orange,
-        );
         handler.resolve(
           Response(
             requestOptions: err.requestOptions,
@@ -58,10 +54,6 @@ class CacheInterceptor extends Interceptor {
         );
         return;
       } else {
-        ToastService.show(
-          'No Internet connection. No worries, you can still Scan.',
-          backgroundColor: AppColors.orange,
-        );
         AppState.hideLoader();
       }
     }

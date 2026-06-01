@@ -84,7 +84,7 @@ class OrderDetailsScreen extends StatelessWidget {
                 // Booking # and status
                 Text.rich(
                   TextSpan(
-                    text: 'Ticket ID: $ticketId ',
+                    text: 'Booking ID: $ticketId ',
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,

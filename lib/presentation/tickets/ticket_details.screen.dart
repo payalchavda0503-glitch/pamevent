@@ -502,7 +502,7 @@ class _TicketDetailsScreenState extends State<TicketDetailsScreen> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Text(
-                              'Ticket ID: $currentOrderTicketId',
+                               'Booking ID : # $bookingId',
                               style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
                             ),
                             GestureDetector(
@@ -512,7 +512,7 @@ class _TicketDetailsScreenState extends State<TicketDetailsScreen> {
                                   MaterialPageRoute(
                                     builder: (context) => OrderDetailsScreen(
                                       bookingData: _bookingDetails ?? {},
-                                      ticketId: currentOrderTicketId,
+                                      ticketId: bookingId,
                                     ),
                                   ),
                                 );

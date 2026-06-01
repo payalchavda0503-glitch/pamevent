@@ -57,6 +57,7 @@ class ApiConfig {
   static Uri get applyReferral => Uri.parse('$_customerBaseUrl/apply_referral');
   static Uri get addToCart => Uri.parse('$_customerBaseUrl/add_to_cart');
   static Uri get checkout => Uri.parse('$_customerBaseUrl/checkout');
+  static Uri get getServiceFee => Uri.parse('$_customerBaseUrl/get_service_fee');
   static Uri get getBookingId => Uri.parse('$_customerBaseUrl/get_booking_id');
   static Uri get moncashPaymentUrl => Uri.parse('$_customerBaseUrl/moncash_payment_url');
   static Uri get bookingComplete => Uri.parse('$_customerBaseUrl/booking_complate');

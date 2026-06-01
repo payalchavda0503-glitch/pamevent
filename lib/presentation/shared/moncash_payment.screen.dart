@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:convert';
 import 'package:webview_flutter/webview_flutter.dart';
 import '../../helpers/app_colors.dart';
 import '../main_layout.dart';
@@ -46,7 +47,16 @@ class _MonCashPaymentScreenState extends State<MonCashPaymentScreen> {
            lowerUrl.contains('payment_success') ||
            lowerUrl.contains('order_complete') ||
            lowerUrl.contains('transaction_success') ||
-           lowerUrl.contains('booking_complate');
+           lowerUrl.contains('booking_complate') ||
+           lowerUrl.contains('booking_complete') ||
+           lowerUrl.contains('order-success') ||
+           lowerUrl.contains('booking-complete') ||
+           lowerUrl.contains('thank-you') ||
+           lowerUrl.contains('thankyou') ||
+           lowerUrl.contains('payment/success') ||
+           lowerUrl.contains('moncash/success') ||
+           lowerUrl.contains('moncash/notify') ||
+           lowerUrl.contains('checkout/success');
   }
 
   bool _isCancelUrl(String url) {
@@ -75,10 +85,43 @@ class _MonCashPaymentScreenState extends State<MonCashPaymentScreen> {
               _loadingProgress = progress / 100;
             });
           },
-          onPageFinished: (url) {
+          onPageFinished: (url) async {
             setState(() {
               _isLoading = false;
             });
+            
+            // Check if page contains the JSON response provided by user
+            if (_isSuccessUrl(url)) {
+              try {
+                final content = await _controller.runJavaScriptReturningResult('document.body.innerText');
+                String cleanContent = content.toString();
+                
+                // Some platforms return stringified JSON with extra quotes and escapes
+                if (cleanContent.startsWith('"') && cleanContent.endsWith('"')) {
+                  cleanContent = cleanContent.substring(1, cleanContent.length - 1)
+                      .replaceAll('\\"', '"')
+                      .replaceAll('\\\\', '\\');
+                }
+                
+                debugPrint('WebView Body Content: $cleanContent');
+                
+                final dynamic json = jsonDecode(cleanContent);
+                if (json is Map && json['status']?.toString() == '100' && json['data'] != null) {
+                   final data = json['data'];
+                   final String? txnId = data['transaction_id']?.toString();
+                   final String? bookingId = data['booking_id']?.toString();
+                   
+                   if (txnId != null || bookingId != null) {
+                      debugPrint('Extracted from JSON - transaction_id: $txnId, booking_id: $bookingId');
+                      _handlePaymentSuccess(url, manualTxnId: txnId, manualBookingId: bookingId);
+                      return;
+                   }
+                }
+              } catch (e) {
+                debugPrint('Error parsing JSON from page: $e');
+              }
+            }
+            
             _checkPaymentCompletion(url);
           },
           onNavigationRequest: (request) {
@@ -122,26 +165,28 @@ class _MonCashPaymentScreenState extends State<MonCashPaymentScreen> {
     }
   }
 
-  void _handlePaymentSuccess(String url) {
+  void _handlePaymentSuccess(String url, {String? manualTxnId, String? manualBookingId}) {
     if (_paymentStatus != MonCashPaymentStatus.success) {
       debugPrint('Handling Payment Success... URL: $url');
       
       // Extract moncash_order_id and transactionId from URL params if present
-      String? moncashOrderId;
-      String? transactionId;
+      String? moncashOrderId = manualBookingId;
+      String? transactionId = manualTxnId;
       
-      try {
-        final uri = Uri.parse(url);
-        moncashOrderId = uri.queryParameters['moncash_order_id'] ?? 
-                         uri.queryParameters['order_id'] ?? 
-                         uri.queryParameters['id'];
-        transactionId = uri.queryParameters['transactionId'] ?? 
-                        uri.queryParameters['transaction_id'] ?? 
-                        uri.queryParameters['tx_id'];
-        
-        debugPrint('Extracted from URL - moncash_order_id: $moncashOrderId, transactionId: $transactionId');
-      } catch (e) {
-        debugPrint('Error parsing URL params: $e');
+      if (manualTxnId == null || manualBookingId == null) {
+        try {
+          final uri = Uri.parse(url);
+          moncashOrderId ??= uri.queryParameters['moncash_order_id'] ?? 
+                           uri.queryParameters['order_id'] ?? 
+                           uri.queryParameters['id'];
+          transactionId ??= uri.queryParameters['transactionId'] ?? 
+                          uri.queryParameters['transaction_id'] ?? 
+                          uri.queryParameters['tx_id'];
+          
+          debugPrint('Extracted from URL - moncash_order_id: $moncashOrderId, transactionId: $transactionId');
+        } catch (e) {
+          debugPrint('Error parsing URL params: $e');
+        }
       }
 
       setState(() {
@@ -149,7 +194,7 @@ class _MonCashPaymentScreenState extends State<MonCashPaymentScreen> {
         _paymentMessage = 'Payment Successful!';
       });
       
-      Future.delayed(const Duration(milliseconds: 500), () {
+      Future.delayed(const Duration(milliseconds: 100), () {
         if (mounted) {
           debugPrint('Returning data for successful payment...');
           Navigator.pop(context, {

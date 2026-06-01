@@ -23,11 +23,21 @@ class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, this.onMenuTap, this.onSearchTap});
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  State<HomeScreen> createState() => HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
-  final TextEditingController _searchController = TextEditingController();
+class HomeScreenState extends State<HomeScreen> {
+  final ScrollController _scrollController = ScrollController();
+
+  void scrollToTop() {
+    if (_scrollController.hasClients) {
+      _scrollController.animateTo(
+        0,
+        duration: const Duration(milliseconds: 500),
+        curve: Curves.easeInOut,
+      );
+    }
+  }
   bool _isLoading = true;
   List<dynamic> _events = [];
   List<dynamic> _categories = [];
@@ -69,7 +79,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
-    _searchController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -171,6 +181,8 @@ class _HomeScreenState extends State<HomeScreen> {
             : RefreshIndicator(
                 onRefresh: _fetchHomeData,
                 child: SingleChildScrollView(
+                  controller: _scrollController,
+                  physics: const AlwaysScrollableScrollPhysics(),
                   child: Padding(
                     padding: const EdgeInsets.all(16.0),
                     child: Column(

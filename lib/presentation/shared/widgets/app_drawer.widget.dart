@@ -8,6 +8,7 @@ import '../../auth/login.screen.dart';
 import '../../event/all_events.screen.dart';
 import '../../artist/artists.screen.dart';
 import '../../search/venues_list.screen.dart';
+import '../../main_layout.dart';
 import '../app_web_view.screen.dart';
 
 /// Drawer menus (same base for guest & logged-in; auth adds the last two).
@@ -60,7 +61,14 @@ class AppDrawer extends StatelessWidget {
         title: 'Home',
         onTap: () {
           Navigator.pop(context);
-          onTabSelected?.call(0);
+          if (onTabSelected != null) {
+            onTabSelected?.call(0);
+          } else {
+            Navigator.of(context).pushAndRemoveUntil(
+              MaterialPageRoute(builder: (_) => const MainLayout(initialIndex: 0)),
+              (route) => false,
+            );
+          }
         },
       ),
       _buildListTile(
@@ -78,7 +86,14 @@ class AppDrawer extends StatelessWidget {
         title: 'My Tickets',
         onTap: () {
           Navigator.pop(context);
-          onTabSelected?.call(2);
+          if (onTabSelected != null) {
+            onTabSelected?.call(2);
+          } else {
+            Navigator.of(context).pushAndRemoveUntil(
+              MaterialPageRoute(builder: (_) => const MainLayout(initialIndex: 2)),
+              (route) => false,
+            );
+          }
         },
       ),
       _buildListTile(
@@ -154,7 +169,14 @@ class AppDrawer extends StatelessWidget {
         title: 'My Profile',
         onTap: () {
           Navigator.pop(context);
-          onTabSelected?.call(3);
+          if (onTabSelected != null) {
+            onTabSelected?.call(3);
+          } else {
+            Navigator.of(context).pushAndRemoveUntil(
+              MaterialPageRoute(builder: (_) => const MainLayout(initialIndex: 3)),
+              (route) => false,
+            );
+          }
         },
       ),
       _buildListTile(

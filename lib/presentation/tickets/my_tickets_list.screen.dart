@@ -378,6 +378,15 @@ class _MyTicketsListScreenState extends State<MyTicketsListScreen> {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Booking ID : #${item['booking_id']?.toString() ?? item['order_id']?.toString() ?? '-'}',
+                    style: const TextStyle(
+                      fontSize: 10, 
+                      color: AppColors.darkGrey, 
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ],
               ),
             ),
