@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart' show DioForNative;
 import 'package:flutter/foundation.dart' show defaultTargetPlatform, kDebugMode, debugPrint;
+import 'package:flutter/material.dart';
 
 import '../helpers/extensions/string.extension.dart';
 import '../helpers/app_state.dart';
@@ -29,6 +30,8 @@ class ApiClient {
   static const noLog = 'no-logs';
   static const cacheResponse = 'do-cache';
   static const enableLogging = kDebugMode;
+
+  static bool _isSessionDialogShowing = false;
 
   static void init() {
     _dio = DioForNative(
@@ -75,23 +78,61 @@ class ApiClient {
 
   static void handleToastMessage(Object? key) {
     if (key is String) {
-      if (key.toLowerCase().contains('unauthenticated') || key.toLowerCase().contains('invalid token') || key.toLowerCase().contains('token expired')) {
-         ToastService.show('Session expired. Please log in again.');
-         AppState.logOut();
+      final msg = key.toLowerCase();
+      
+      // Separate Token Expire Logic: Handle unauthenticated/expired sessions
+      if (msg.contains('unauthenticated') || msg.contains('invalid token') || msg.contains('token expired')) {
+         handleSessionExpired();
          return;
       }
+
       if (key.trim().isNotEmpty) ToastService.show(key);
     } else if (key is Map) {
       final errors = key.values.firstOrNull;
       if (errors is List && errors.isNotEmpty) {
         final msg = errors.first.toString();
-        if (msg.toLowerCase().contains('unauthenticated') || msg.toLowerCase().contains('invalid token') || msg.toLowerCase().contains('token expired')) {
-           ToastService.show('Session expired. Please log in again.');
-           AppState.logOut();
+        final lowerMsg = msg.toLowerCase();
+
+        // Separate Token Expire Logic
+        if (lowerMsg.contains('unauthenticated') || lowerMsg.contains('invalid token') || lowerMsg.contains('token expired')) {
+           handleSessionExpired();
            return;
         }
+
         ToastService.show(msg);
       }
+    }
+  }
+
+  static void handleSessionExpired() {
+    if (_isSessionDialogShowing || !AppState.loggedIn) return;
+    _isSessionDialogShowing = true;
+
+    AppState.hideLoader();
+    final context = AppState.navKey.currentContext;
+    if (context != null) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          title: const Text('Session Expired'),
+          content: const Text('Your session has expired. Please log in again to continue.'),
+          actions: [
+            TextButton(
+              onPressed: () {
+                _isSessionDialogShowing = false;
+                Navigator.pop(context);
+                AppState.logOut(isSessionExpired: true);
+              },
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+    } else {
+      _isSessionDialogShowing = false;
+      ToastService.show('Session expired. Please log in again.');
+      AppState.logOut(isSessionExpired: true);
     }
   }
 
@@ -166,9 +207,16 @@ class ApiClient {
   }
 
   static Future<Map<String, dynamic>?> getProfile() async {
+    debugPrint('API CALL: getProfile');
     try {
       final response = await _dio.getUri(ApiConfig.profile);
       if (!_isResponseSafe(response)) return null;
+
+      // Robust check: if response already has data we need (like id or email)
+      if (response.data is Map && (response.data.containsKey('id') || response.data.containsKey('email'))) {
+        return response.data;
+      }
+
       if (response.data['status'] == 100) {
         return response.data['data'];
       } else if (response.data['status'] == 101) {
@@ -461,6 +509,7 @@ class ApiClient {
           'password': password,
         }),
       );
+      if (!_isResponseSafe(response)) return null;
       if (response.data['status'] == 100) {
         return response.data;
       } else {
@@ -469,6 +518,41 @@ class ApiClient {
     } catch (exception) {
       if (kDebugMode) rethrow;
       dev.log('Error in login ======> $exception');
+    }
+    return null;
+  }
+
+  static Future<Map<String, dynamic>?> guestLogin({
+    required String fname,
+    required String email,
+    required String phone,
+    required String countryCode,
+  }) async {
+    try {
+      debugPrint('API CALL: guestLogin with fname: $fname, email: $email');
+      final response = await _dio.postUri(
+        ApiConfig.guestLogin,
+        data: FormData.fromMap({
+          'fname': fname,
+          'email': email,
+          'phone': phone,
+          'country_code': countryCode,
+        }),
+      );
+      debugPrint('API RESPONSE: guestLogin status code: ${response.statusCode}');
+      
+      if (!_isResponseSafe(response)) return null;
+      
+      // Check for status 100 or if data exists directly (based on user screenshot)
+      if (response.data['status'] == 100 || (response.data['data'] != null && response.data['data']['id'] != null)) {
+        return response.data;
+      } else {
+        handleToastMessage(response.data['message'] ?? 'Guest login failed');
+      }
+    } catch (exception) {
+      if (kDebugMode) rethrow;
+      dev.log('Error in guestLogin ======> $exception');
+      debugPrint('API ERROR: guestLogin exception: $exception');
     }
     return null;
   }
@@ -1148,6 +1232,7 @@ class ApiClient {
   static Future<String?> getBookingId() async {
     try {
       final response = await _dio.getUri(ApiConfig.getBookingId);
+      if (!_isResponseSafe(response)) return null;
       if (response.data['status'] == 100) {
         return response.data['data']?['booking_id']?.toString() ?? 
                response.data['booking_id']?.toString();

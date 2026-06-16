@@ -4,6 +4,7 @@ import 'dart:io';
 import '../../api/api.client.dart';
 import '../../helpers/app_colors.dart';
 import '../../helpers/app_state.dart';
+import '../../api/models/auth/profile.dart';
 import '../../helpers/public_url.dart';
 import '../../helpers/utils.dart';
 import '../../helpers/extensions/context.extension.dart';
@@ -221,6 +222,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   final TextEditingController _couponController = TextEditingController();
   final TextEditingController _referralController = TextEditingController();
 
+  final Map<String, dynamic> _customAnswers = {};
+  final Map<String, String> _customErrorText = {};
+
   List<Map<String, dynamic>> _hardcodedGateways = [];
 
   @override
@@ -246,6 +250,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       'event_id': widget.eventId,
       'discount': 0,
       'admin_coupon_discount': _couponDiscount == 0 ? 0 : _couponDiscount,
+      'referral_discount': _referralDiscount == 0 ? 0 : _referralDiscount,
       'attendee_discount': 0,
     };
 
@@ -338,7 +343,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     final total = widget.totalAmount + currentServiceFee + currentProcessingFee - _couponDiscount - _referralDiscount;
     return double.parse((total + 0.00001).toStringAsFixed(2));
   }
-
+  double get subtotal {
+     final total = widget.totalAmount - _couponDiscount - _referralDiscount;
+    return double.parse((total + 0.00001).toStringAsFixed(2));
+  }
   Future<void> _fetchEventDetail() async {
     final data = await ApiClient.getCustomerEventDetail(widget.eventId);
     if (mounted) {
@@ -575,12 +583,30 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       'coupon': code,
     });
     if (res != null) {
+      final dynamic discountValue = res['discount'] ?? 
+                                   (res['data'] is Map ? res['data']['discount'] : null) ??
+                                   res['coupon_discount'] ??
+                                   (res['data'] is Map ? res['data']['coupon_discount'] : null);
       setState(() {
-        _couponDiscount = double.tryParse(res['discount']?.toString() ?? '0') ?? 0.0;
+        _couponDiscount = double.tryParse(discountValue?.toString() ?? '0') ?? 0.0;
       });
       await _fetchApiServiceFee();
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Coupon applied!')));
+      if (mounted) {
+        if (_couponDiscount > 0) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Coupon applied!')));
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Coupon applied but no discount available.')));
+        }
+      }
     }
+  }
+
+  void _clearCoupon() {
+    setState(() {
+      _couponDiscount = 0.0;
+      _couponController.clear();
+    });
+    _fetchApiServiceFee();
   }
 
   Future<void> _applyReferral() async {
@@ -603,13 +629,35 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     };
     
     final res = await ApiClient.customerApplyReferral(map);
+    print('Referral Code API Response: $res');
     if (res != null) {
+      final dynamic discountValue = res['attendee_discount'] ?? 
+                                   (res['data'] is Map ? res['data']['attendee_discount'] : null) ??
+                                   res['discount'] ?? 
+                                   (res['data'] is Map ? res['data']['discount'] : null) ??
+                                   res['referral_discount'] ??
+                                   (res['data'] is Map ? res['data']['referral_discount'] : null);
+      print('Extracted Referral Discount Value (Prioritizing attendee_discount): $discountValue');
       setState(() {
-        _referralDiscount = double.tryParse(res['discount']?.toString() ?? '0') ?? 0.0;
+        _referralDiscount = double.tryParse(discountValue?.toString() ?? '0') ?? 0.0;
       });
       await _fetchApiServiceFee();
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Referral applied!')));
+      if (mounted) {
+        if (_referralDiscount > 0) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Referral applied!')));
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Referral applied but no discount available.')));
+        }
+      }
     }
+  }
+
+  void _clearReferral() {
+    setState(() {
+      _referralDiscount = 0.0;
+      _referralController.clear();
+    });
+    _fetchApiServiceFee();
   }
 
   Future<void> _proceedToCheckout() async {
@@ -634,6 +682,17 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please fill all required attendee details')));
          return;
      }
+
+     if (email != reEmail) {
+         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Emails do not match')));
+         return;
+     }
+
+     if (!_validateCustomQuestions()) {
+         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please answer all required custom questions')));
+         return;
+     }
+
      if (!isFreeOrder && _selectedPaymentMethod.isEmpty) {
          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select a payment method')));
          return;
@@ -647,6 +706,72 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
      AppState.showLoader();
 
      try {
+       // Perform Guest Login if not logged in
+       if (!_isLoggedIn) {
+          String countryCode = '+1'; // Default
+          String mainPhone = phone;
+          if (phone.startsWith('+')) {
+            if (phone.length > 3) {
+               countryCode = phone.substring(0, 3);
+               mainPhone = phone.substring(3);
+            }
+          }
+          
+          debugPrint('DEBUG: Attempting Guest Login for $email');
+          final guestRes = await ApiClient.guestLogin(
+            fname: fname,
+            email: email,
+            phone: mainPhone,
+            countryCode: countryCode,
+          ).timeout(const Duration(seconds: 15), onTimeout: () {
+            debugPrint('DEBUG: Guest Login Timed Out');
+            return null;
+          });
+          
+          if (guestRes != null) {
+            try {
+              Map<String, dynamic> profileData = {};
+              if (guestRes['data'] is Map) {
+                profileData = Map<String, dynamic>.from(guestRes['data']);
+              }
+              
+              // Ensure access_token is present in profileData
+              if (!profileData.containsKey('access_token') && guestRes.containsKey('access_token')) {
+                profileData['access_token'] = guestRes['access_token'];
+              }
+              
+              if (profileData.containsKey('access_token')) {
+                final profile = Profile.fromJson(profileData);
+                await AppState.setProfile(profile, local: false, loader: false);
+                setState(() {
+                  _isLoggedIn = true;
+                });
+                debugPrint('DEBUG: Guest Login Successful, customer_id: ${profile.id}');
+              } else {
+                debugPrint('DEBUG: Guest login response missing access_token: $guestRes');
+                AppState.hideLoader();
+                setState(() => _isSubmitting = false);
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Login failed: No access token received.')));
+                return;
+              }
+            } catch (e) {
+              debugPrint('DEBUG: Error parsing guest profile: $e');
+              AppState.hideLoader();
+              setState(() => _isSubmitting = false);
+              if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to initialize guest session: $e')));
+              return;
+            }
+          } else {
+             debugPrint('DEBUG: Guest Login failed or returned null');
+             AppState.hideLoader();
+             setState(() => _isSubmitting = false);
+             return;
+          }
+       }
+
+       final String customerId = AppState.profile?.id?.toString() ?? '';
+       debugPrint('DEBUG: Proceeding with checkout, customerId: $customerId');
+
        // 1. Get Booking ID first from API
        final String? orderId = await ApiClient.getBookingId();
        if (orderId == null) {
@@ -672,9 +797,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
        double finalServiceFee = currentServiceFee;
        double finalSubTotal = widget.totalAmount;
        double totalToPay = grandTotal;
+       double subTotal = subtotal;
        
-       double payloadGrandTotal = finalSubTotal + finalServiceFee - _couponDiscount - _referralDiscount;
-       payloadGrandTotal = double.parse(payloadGrandTotal.toStringAsFixed(2));
+       double discountedAmount = double.parse((finalSubTotal - _couponDiscount - _referralDiscount).toStringAsFixed(2));
 
        final String processingFeeStr = finalProcessingFee.toStringAsFixed(2);
        final String serviceFeeStr = finalServiceFee.toStringAsFixed(2);
@@ -700,6 +825,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
          }
        }
        final map = <String, dynamic>{
+           'customer_id': customerId,
            'booking_id': orderId, 
            'event_id': widget.eventId.toString(),
            'event_name': _eventDetail?['title'] ?? 'Event',
@@ -709,7 +835,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
            're_enter_email': reEmail,
            'gateway': finalGateway,
            'agree_org_policy': '1',
-           'total': finalSubTotal.toStringAsFixed(2),
+           'total': subTotal.toStringAsFixed(2),
            'quantity': widget.selectedTickets.fold<int>(0, (sum, e) => sum + (e['count'] as int)).toString(),
            'processing_fee': processingFeeStr,
            'service_fee': serviceFeeStr,
@@ -719,18 +845,30 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
            'referral_code': _referralController.text.isEmpty ? '0' : _referralController.text,
            'admin_coupon_discount': _couponDiscount.toStringAsFixed(2),
            'referral_discount': _referralDiscount.toStringAsFixed(2),
-           'attendee_discount': '0',
+           'attendee_discount': _referralDiscount.toStringAsFixed(2),
            'event_date': _eventDetail?['start_date'] ?? '',
            'event_start_time': _eventDetail?['start_time'] ?? '',
            'tax': '0',
            'discount': '0',
            'total_early_bird_discount': '0',
-           'sub_total': finalSubTotal.toStringAsFixed(2),
-           'grand_total':  finalSubTotal.toStringAsFixed(2),
+           'sub_total': subTotal.toStringAsFixed(2),
+           'grand_total': subTotal.toStringAsFixed(2),
+           'total': subTotal.toStringAsFixed(2),
            'ticket_id': widget.selectedTickets.isNotEmpty ? (widget.selectedTickets.first['ticket']['id'] ?? widget.selectedTickets.first['ticket']['ticket_id']).toString() : '',
            'tickets_id': widget.selectedTickets.isNotEmpty ? (widget.selectedTickets.first['ticket']['id'] ?? widget.selectedTickets.first['ticket']['ticket_id']).toString() : '',
            'ticket_ids': widget.selectedTickets.map((e) => (e['ticket']['id'] ?? e['ticket']['ticket_id']).toString()).toList(),
        };
+
+       // Add Custom Questions to payload in custom_question[name] format
+        _customAnswers.forEach((name, value) {
+          if (value is List) {
+            // Match the screenshot: Send as a JSON-formatted array string ["Value1", "Value2"]
+            map['custom_question[$name]'] = value;
+          } else {
+            // Single value (Text/Select)
+            map['custom_question[$name]'] = value.toString();
+          }
+        });
 
        // Compute dynamic device_browser details
        final double shortestSide = MediaQuery.of(context).size.shortestSide;
@@ -982,12 +1120,19 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             // REDIRECT PAYMENT FLOW (MonCash)
             // 1. Get Payment URL from moncashPaymentUrl API using same payload as checkout
             final piRes = await ApiClient.getMonCashPaymentUrl(map);
-
+            print('piRes-------$piRes');
             if (piRes != null) {
                final paymentData = piRes['data'] is Map ? piRes['data'] : piRes;
                final String? paymentUrl = (paymentData['url'] ?? paymentData['redirect_url'])?.toString();
                // Extract the moncash_order_id/booking_id from the payment URL API response
-               final String? moncashOrderIdFromApi = paymentData['booking_id']?.toString() ?? paymentData['moncash_order_id']?.toString();
+               // Check multiple possible keys for the order ID
+               final String? moncashOrderIdFromApi = paymentData['booking_id']?.toString() ?? 
+                                                    paymentData['moncash_order_id']?.toString() ?? 
+                                                    paymentData['order_id']?.toString() ?? 
+                                                    paymentData['id']?.toString();
+               
+               debugPrint('DEBUG: MonCash Payment Data: $paymentData');
+               debugPrint('DEBUG: Extracted moncashOrderIdFromApi: $moncashOrderIdFromApi');
                
                AppState.hideLoader();
                
@@ -1014,9 +1159,29 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                           
                           final finalCheckoutMap = Map<String, dynamic>.from(map);
                           
-                          // Priority 1: Use the booking_id we got from the moncashPaymentUrl API response
-                          // Priority 2: Fallback to whatever returned from WebView
-                          finalCheckoutMap['moncash_order_id'] = moncashOrderIdFromApi ?? paymentResult['moncash_order_id'] ?? orderId;
+                          // Robustly extract the best available MonCash Order ID
+                          String? finalMoncashId;
+                          
+                          // 1. Check ID from API response
+                          if (moncashOrderIdFromApi != null && 
+                              moncashOrderIdFromApi.isNotEmpty && 
+                              moncashOrderIdFromApi.toLowerCase() != 'null') {
+                            finalMoncashId = moncashOrderIdFromApi;
+                          } 
+                          // 2. Check ID from WebView result
+                          else if (paymentResult['moncash_order_id'] != null) {
+                            final String wvId = paymentResult['moncash_order_id'].toString();
+                            if (wvId.isNotEmpty && wvId.toLowerCase() != 'null') {
+                              finalMoncashId = wvId;
+                            }
+                          }
+                          
+                          // 3. Ultimate fallback to the original booking orderId
+                          finalMoncashId ??= orderId;
+                          
+                          finalCheckoutMap['moncash_order_id'] = finalMoncashId;
+                          
+                          debugPrint('DEBUG: Final moncash_order_id being sent: $finalMoncashId');
                           
                           if (paymentResult['transactionId'] != null) {
                             finalCheckoutMap['transaction_id'] = paymentResult['transactionId'];
@@ -1423,22 +1588,31 @@ print('finalcheckout------$finalCheckoutMap');
           }
         ),
         
-        const SizedBox(height: 24),
+        // Custom Questions Section
+        if (_eventDetail != null) ...[
+          (() {
+            final questions = _eventDetail!['custom_questions'] ?? _eventDetail!['custom_question'];
+            if (questions is List && questions.isNotEmpty) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 24), // Reduced from 32
+                  const Text('Additional Information', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 12), // Reduced from 16
+                  ...questions.map((q) => _buildCustomQuestion(q)).toList(),
+                ],
+              );
+            }
+            return const SizedBox.shrink();
+          })(),
+        ],
+        
+        const SizedBox(height: 16), // Reduced from 24
         if (!isFreeOrder) ...[
-          const SizedBox(height: 32),
+          const SizedBox(height: 16), // Reduced from 32
           const Text('Payment Method', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 16),
-          ..._hardcodedGateways.map((g) {
-             return Padding(
-               padding: const EdgeInsets.only(bottom: 12.0),
-               child: _buildPaymentOption(
-                 g['title'], 
-                 g['id'], 
-                 iconUrl: g['icon_url'],
-                 icon: g['keyword'] == 'stripe' ? Icons.credit_card : Icons.money
-               ),
-             );
-          }).toList(),
+          const SizedBox(height: 12), // Reduced from 16
+          _buildPaymentMethods(),
         ],
         const SizedBox(height: 24),
         Row(
@@ -1462,6 +1636,25 @@ print('finalcheckout------$finalCheckoutMap');
           ],
         ),
         const SizedBox(height: 24),
+      ],
+    );
+  }
+
+  Widget _buildPaymentMethods() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ..._hardcodedGateways.map((g) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 12.0),
+            child: _buildPaymentOption(
+              g['title'],
+              g['id'],
+              iconUrl: g['icon_url'],
+              icon: g['keyword'] == 'stripe' ? Icons.credit_card : Icons.money,
+            ),
+          );
+        }).toList(),
       ],
     );
   }
@@ -1524,21 +1717,63 @@ print('finalcheckout------$finalCheckoutMap');
         _buildSummaryRow('Total Tickets', '$totalTickets'),
         const SizedBox(height: 12),
         _buildSummaryRow('Ticket Price', '\$${widget.totalAmount.toStringAsFixed(2)}'),
-        const SizedBox(height: 12),
-        _buildSummaryRow('Subtotal', '\$${widget.totalAmount.toStringAsFixed(2)}'),
-        const SizedBox(height: 12),
-        _buildSummaryRow('Service Fee', '+ \$${currentServiceFee.toStringAsFixed(2)}'),
-        if (currentProcessingFee > 0) ...[
-          const SizedBox(height: 12),
-          _buildSummaryRow('Processing Fee', '+ \$${currentProcessingFee.toStringAsFixed(2)}'),
-        ],
         if (_couponDiscount > 0) ...[
           const SizedBox(height: 12),
-          _buildSummaryRow('Coupon Discount', '- \$${_couponDiscount.toStringAsFixed(2)}'),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Coupon Discount', style: TextStyle(color: Colors.grey, fontSize: 14)),
+              Row(
+                children: [
+                  Text('- \$${_couponDiscount.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Colors.green)),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: _clearCoupon,
+                    child: const Icon(Icons.close, size: 16, color: Colors.red),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ],
         if (_referralDiscount > 0) ...[
           const SizedBox(height: 12),
-          _buildSummaryRow('Referral Discount', '- \$${_referralDiscount.toStringAsFixed(2)}'),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Referral Discount', style: TextStyle(color: Colors.grey, fontSize: 14)),
+              Row(
+                children: [
+                  Text('- \$${_referralDiscount.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Colors.green)),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: _clearReferral,
+                    child: const Icon(Icons.close, size: 16, color: Colors.red),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
+        const SizedBox(height: 12),
+        _buildSummaryRow('Subtotal', '\$${subtotal.toStringAsFixed(2)}'),
+        const SizedBox(height: 12),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(
+              children: [
+                const Text('Service Fee', style: TextStyle(color: Colors.grey, fontSize: 14)),
+                const SizedBox(width: 4),
+                Icon(Icons.info, size: 14, color: Colors.grey.shade600),
+              ],
+            ),
+            Text('+ \$${currentServiceFee.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Colors.red)),
+          ],
+        ),
+        if (currentProcessingFee > 0) ...[
+          const SizedBox(height: 12),
+          _buildSummaryRow('Processing Fee', '+ \$${currentProcessingFee.toStringAsFixed(2)}'),
         ],
         const Divider(height: 32),
         Row(
@@ -1648,7 +1883,19 @@ print('finalcheckout------$finalCheckoutMap');
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+        RichText(
+          text: TextSpan(
+            text: label.replaceAll('*', '').trim(),
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black),
+            children: [
+              if (label.contains('*'))
+                const TextSpan(
+                  text: ' *',
+                  style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                ),
+            ],
+          ),
+        ),
         const SizedBox(height: 8),
         SizedBox(
           height: 48,
@@ -1664,6 +1911,190 @@ print('finalcheckout------$finalCheckoutMap');
         ),
       ],
     );
+  }
+
+  Widget _buildCustomQuestion(dynamic q) {
+    if (q is! Map) return const SizedBox.shrink();
+    
+    final int type = int.tryParse(q['type']?.toString() ?? '1') ?? 1;
+    final String label = q['label']?.toString() ?? '';
+    final String name = q['name']?.toString() ?? '';
+    final bool isRequired = (q['required']?.toString() == '1');
+    final String placeholder = q['placeholder']?.toString() ?? '';
+    final List<dynamic> options = q['options'] is List ? q['options'] : [];
+
+    final Widget labelWidget = RichText(
+      text: TextSpan(
+        text: label,
+        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black),
+        children: [
+          if (isRequired)
+            const TextSpan(
+              text: ' *',
+              style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+            )
+          else
+            const TextSpan(
+              text: ' (Optional)',
+              style: TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.normal),
+            ),
+        ],
+      ),
+    );
+
+    switch (type) {
+      case 1: // Text
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              labelWidget,
+              const SizedBox(height: 8),
+              TextField(
+                onChanged: (val) {
+                  setState(() {
+                    _customAnswers[name] = val;
+                    if (val.isNotEmpty) _customErrorText.remove(name);
+                  });
+                },
+                decoration: InputDecoration(
+                  hintText: placeholder,
+                  hintStyle: const TextStyle(fontSize: 14, color: Colors.grey),
+                  border: const OutlineInputBorder(),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+                  errorText: _customErrorText[name],
+                ),
+              ),
+            ],
+          ),
+        );
+      case 2: // Select
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              labelWidget,
+              const SizedBox(height: 8),
+              DropdownButtonFormField<String>(
+                value: _customAnswers[name],
+                hint: Text(placeholder.isNotEmpty ? placeholder : 'Select Option', style: const TextStyle(fontSize: 14, color: Colors.grey)),
+                items: options.map((opt) {
+                  final optName = opt['name']?.toString() ?? '';
+                  return DropdownMenuItem<String>(
+                    value: optName,
+                    child: Text(optName, style: const TextStyle(fontSize: 14)),
+                  );
+                }).toList(),
+                onChanged: (val) {
+                  setState(() {
+                    _customAnswers[name] = val;
+                    _customErrorText.remove(name);
+                  });
+                },
+                decoration: InputDecoration(
+                  border: const OutlineInputBorder(),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+                  errorText: _customErrorText[name],
+                ),
+              ),
+            ],
+          ),
+        );
+      case 3: // Checkbox
+        final List<String> selectedValues = _customAnswers[name] is List 
+            ? List<String>.from(_customAnswers[name]) 
+            : [];
+            
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              labelWidget,
+              const SizedBox(height: 8),
+              ...options.map((opt) {
+                final optName = opt['name']?.toString() ?? '';
+                final isChecked = selectedValues.contains(optName);
+                return InkWell(
+                  onTap: () {
+                    setState(() {
+                      if (!isChecked) {
+                        selectedValues.add(optName);
+                      } else {
+                        selectedValues.remove(optName);
+                      }
+                      _customAnswers[name] = selectedValues;
+                      if (selectedValues.isNotEmpty) _customErrorText.remove(name);
+                    });
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2), // Reduced gap between options
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(
+                          height: 32,
+                          width: 32,
+                          child: Checkbox(
+                            value: isChecked,
+                            activeColor: AppColors.primary,
+                            onChanged: (val) {
+                              setState(() {
+                                if (val == true) {
+                                  selectedValues.add(optName);
+                                } else {
+                                  selectedValues.remove(optName);
+                                }
+                                _customAnswers[name] = selectedValues;
+                                if (selectedValues.isNotEmpty) _customErrorText.remove(name);
+                              });
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(optName, style: const TextStyle(fontSize: 14)),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+              if (_customErrorText[name] != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8, left: 12),
+                  child: Text(_customErrorText[name]!, style: const TextStyle(color: Colors.red, fontSize: 12)),
+                ),
+            ],
+          ),
+        );
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+
+  bool _validateCustomQuestions() {
+    bool isValid = true;
+    final questions = _eventDetail?['custom_questions'] ?? _eventDetail?['custom_question'];
+    if (questions is! List) return true;
+
+    setState(() {
+      _customErrorText.clear();
+      for (var q in questions) {
+        if (q is! Map) continue;
+        final String name = q['name']?.toString() ?? '';
+        final bool isRequired = (q['required']?.toString() == '1');
+        final dynamic answer = _customAnswers[name];
+
+        if (isRequired) {
+          if (answer == null || (answer is String && answer.trim().isEmpty) || (answer is List && answer.isEmpty)) {
+            _customErrorText[name] = 'This field is required';
+            isValid = false;
+          }
+        }
+      }
+    });
+    return isValid;
   }
 
   Widget _buildPaymentOption(String title, String value, {String? iconUrl, IconData? icon}) {

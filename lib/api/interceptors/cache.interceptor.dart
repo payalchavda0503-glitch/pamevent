@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'package:dio/dio.dart';
+import 'package:flutter/material.dart';
 
 import '../../helpers/app_colors.dart';
 import '../../helpers/app_state.dart';
@@ -21,9 +23,10 @@ class CacheInterceptor extends Interceptor {
 
   @override
   void onResponse(Response response, ResponseInterceptorHandler handler) async {
-    if (response.statusCode == 200 && response.data['status'] == 100) {
+    if (response.statusCode == 200 && response.data is Map && response.data['status'] == 100) {
       final headers = response.requestOptions.headers;
-      final cacheHeader = headers[ApiClient.cacheResponse];
+      const cacheResponse = 'do-cache';
+      final cacheHeader = headers[cacheResponse];
       if (cacheHeader == true) {
         final cacheKey = getCacheKey(response.requestOptions);
         AppState.prefs.setString(cacheKey, jsonEncode(response.data));
@@ -37,6 +40,12 @@ class CacheInterceptor extends Interceptor {
     DioException err,
     ErrorInterceptorHandler handler,
   ) async {
+    // Check for 401 Unauthorized errors
+    if (err.response?.statusCode == 401) {
+      ApiClient.handleSessionExpired();
+      return; // Stop further error handling for 401
+    }
+
     final connectionError = [
       DioExceptionType.connectionError,
       DioExceptionType.connectionTimeout,

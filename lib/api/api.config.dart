@@ -22,6 +22,7 @@ class ApiConfig {
   static Uri customerSearch(String query) => Uri.parse('$_customerBaseUrl/search?q=$query');
   static Uri get getEventLocations => Uri.parse('$_customerBaseUrl/get_event_locations');
   static Uri get venues => Uri.parse('$_customerBaseUrl/venues');
+  static Uri get guestLogin => Uri.parse('$_customerBaseUrl/guest_login');
   static Uri get createPaymentIntent => Uri.parse('$_customerBaseUrl/create-payment-intent');
   static Uri getArtistDetail(String slug) => Uri.parse('$_customerBaseUrl/artist/$slug');
   static Uri get venueDetail => Uri.parse('$_customerBaseUrl/venue_detail');

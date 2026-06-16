@@ -12,18 +12,7 @@ class AuthInterceptor extends Interceptor {
     DioException err,
     ErrorInterceptorHandler handler,
   ) async {
-    if (err.response?.statusCode == 401) {
-      final expiredMsg = 'Session expired. Please log in again.';
-      ToastService.show(
-        expiredMsg,
-        backgroundColor: AppColors.orange,
-        long: true,
-      );
-      await AppState.logOut();
-      AppState.hideLoader();
-      handler.next(err);
-    } else {
-      handler.next(err);
-    }
+    // 401 errors are now handled by CacheInterceptor with a dialog
+    handler.next(err);
   }
 }

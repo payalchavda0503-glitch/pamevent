@@ -8,7 +8,11 @@ class OrderDetailsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    print('=== Order Details bookingData ===');
+    print(bookingData);
+    print('=== Order Details paymentInfo ===');
     final paymentInfo = bookingData['payment_info'] ?? {};
+    print(paymentInfo);
     final billingDetails = bookingData['billing_details'] ?? {};
     final event = bookingData['event'] ?? {};
 
@@ -34,6 +38,10 @@ class OrderDetailsScreen extends StatelessWidget {
     }
 
     final ticketPrice = formatPrice(paymentInfo['ticket_price'] ?? bookingData['ticket_price']);
+    final couponDiscount = formatPrice(paymentInfo['admin_coupon_discount'] ?? paymentInfo['coupon_discount'] ?? bookingData['admin_coupon_discount'] ?? bookingData['coupon_discount'] ?? bookingData['discount']);
+    final referralDiscount = formatPrice(paymentInfo['attendee_discount'] ?? bookingData['attendee_discount'] ?? paymentInfo['refferal_discount'] ?? bookingData['referral_discount']);
+    print('=== Order Details referralDiscount ===$paymentInfo');
+    print(referralDiscount);
     final addonPriceFee = formatPrice(paymentInfo['addon_price_fee']);
     final serviceFee = formatPrice(paymentInfo['service_fee'] ?? bookingData['service_fee']);
     final processingFee = formatPrice(paymentInfo['processing_fee'] ?? bookingData['processing_fee']);
@@ -138,6 +146,14 @@ class OrderDetailsScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 _buildInfoRow('Event', eventTitle),
+                if (couponDiscount != '\$0.00') ...[
+                  const SizedBox(height: 8),
+                  _buildInfoRow('Coupon Discount', '- $couponDiscount'),
+                ],
+                if (referralDiscount != '\$0.00') ...[
+                  const SizedBox(height: 8),
+                  _buildInfoRow('Referral Discount', '- $referralDiscount'),
+                ],
                 const SizedBox(height: 8),
                 _buildInfoRow('Ticket Price', ticketPrice),
                 if (addonPriceFee != '\$0.00') ...[

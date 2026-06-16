@@ -109,7 +109,12 @@ class _MonCashPaymentScreenState extends State<MonCashPaymentScreen> {
                 if (json is Map && json['status']?.toString() == '100' && json['data'] != null) {
                    final data = json['data'];
                    final String? txnId = data['transaction_id']?.toString();
-                   final String? bookingId = data['booking_id']?.toString();
+                   
+                   // Try multiple keys for booking/order ID from the JSON
+                   final String? bookingId = data['booking_id']?.toString() ?? 
+                                           data['booking_uid']?.toString() ?? 
+                                           data['order_id']?.toString() ?? 
+                                           data['id']?.toString();
                    
                    if (txnId != null || bookingId != null) {
                       debugPrint('Extracted from JSON - transaction_id: $txnId, booking_id: $bookingId');
@@ -169,24 +174,38 @@ class _MonCashPaymentScreenState extends State<MonCashPaymentScreen> {
     if (_paymentStatus != MonCashPaymentStatus.success) {
       debugPrint('Handling Payment Success... URL: $url');
       
-      // Extract moncash_order_id and transactionId from URL params if present
       String? moncashOrderId = manualBookingId;
       String? transactionId = manualTxnId;
       
-      if (manualTxnId == null || manualBookingId == null) {
+      // Only check URL params if manual values weren't provided or are empty
+      if (moncashOrderId == null || moncashOrderId.isEmpty || transactionId == null || transactionId.isEmpty) {
         try {
           final uri = Uri.parse(url);
-          moncashOrderId ??= uri.queryParameters['moncash_order_id'] ?? 
-                           uri.queryParameters['order_id'] ?? 
-                           uri.queryParameters['id'];
-          transactionId ??= uri.queryParameters['transactionId'] ?? 
-                          uri.queryParameters['transaction_id'] ?? 
-                          uri.queryParameters['tx_id'];
+          
+          if (moncashOrderId == null || moncashOrderId.isEmpty) {
+            moncashOrderId = uri.queryParameters['moncash_order_id'] ?? 
+                             uri.queryParameters['order_id'] ?? 
+                             uri.queryParameters['id'] ??
+                             uri.queryParameters['booking_id'];
+          }
+          
+          if (transactionId == null || transactionId.isEmpty) {
+            transactionId = uri.queryParameters['transactionId'] ?? 
+                            uri.queryParameters['transaction_id'] ?? 
+                            uri.queryParameters['tx_id'] ??
+                            uri.queryParameters['reference'];
+          }
           
           debugPrint('Extracted from URL - moncash_order_id: $moncashOrderId, transactionId: $transactionId');
         } catch (e) {
           debugPrint('Error parsing URL params: $e');
         }
+      }
+
+      // Ultimate fallback: Use original orderId passed to this screen if still null or empty
+      if (moncashOrderId == null || moncashOrderId.isEmpty || moncashOrderId.toLowerCase() == 'null') {
+        moncashOrderId = widget.orderId;
+        debugPrint('Using ultimate fallback orderId: $moncashOrderId');
       }
 
       setState(() {

@@ -141,14 +141,23 @@ class AppState {
     if (loader) hideLoader();
   }
 
-  static Future<void> logOut({bool restart = true}) async {
+  static Future<void> logOut({bool restart = true, bool isSessionExpired = false}) async {
     showLoader();
     try {
+      // If session is expired, immediately clear profile to prevent further 401 dialogs
+      if (isSessionExpired) {
+        profile = null;
+        ApiClient.removeAuthHeader();
+      }
+
       // Call Logout API - don't let it block the rest of logout if it fails
-      try {
-        await ApiClient.logout();
-      } catch (e) {
-        dev.log('Logout API failed: $e');
+      // Skip if session is already expired to avoid redundant 401 errors
+      if (!isSessionExpired) {
+        try {
+          await ApiClient.logout();
+        } catch (e) {
+          dev.log('Logout API failed: $e');
+        }
       }
       
       try {
