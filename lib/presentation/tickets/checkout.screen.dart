@@ -707,67 +707,67 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
      try {
        // Perform Guest Login if not logged in
-       if (!_isLoggedIn) {
-          String countryCode = '+1'; // Default
-          String mainPhone = phone;
-          if (phone.startsWith('+')) {
-            if (phone.length > 3) {
-               countryCode = phone.substring(0, 3);
-               mainPhone = phone.substring(3);
-            }
-          }
-          
-          debugPrint('DEBUG: Attempting Guest Login for $email');
-          final guestRes = await ApiClient.guestLogin(
-            fname: fname,
-            email: email,
-            phone: mainPhone,
-            countryCode: countryCode,
-          ).timeout(const Duration(seconds: 15), onTimeout: () {
-            debugPrint('DEBUG: Guest Login Timed Out');
-            return null;
-          });
-          
-          if (guestRes != null) {
-            try {
-              Map<String, dynamic> profileData = {};
-              if (guestRes['data'] is Map) {
-                profileData = Map<String, dynamic>.from(guestRes['data']);
-              }
-              
-              // Ensure access_token is present in profileData
-              if (!profileData.containsKey('access_token') && guestRes.containsKey('access_token')) {
-                profileData['access_token'] = guestRes['access_token'];
-              }
-              
-              if (profileData.containsKey('access_token')) {
-                final profile = Profile.fromJson(profileData);
-                await AppState.setProfile(profile, local: false, loader: false);
-                setState(() {
-                  _isLoggedIn = true;
-                });
-                debugPrint('DEBUG: Guest Login Successful, customer_id: ${profile.id}');
-              } else {
-                debugPrint('DEBUG: Guest login response missing access_token: $guestRes');
-                AppState.hideLoader();
-                setState(() => _isSubmitting = false);
-                if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Login failed: No access token received.')));
-                return;
-              }
-            } catch (e) {
-              debugPrint('DEBUG: Error parsing guest profile: $e');
-              AppState.hideLoader();
-              setState(() => _isSubmitting = false);
-              if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to initialize guest session: $e')));
-              return;
-            }
-          } else {
-             debugPrint('DEBUG: Guest Login failed or returned null');
-             AppState.hideLoader();
-             setState(() => _isSubmitting = false);
-             return;
-          }
-       }
+       // if (!_isLoggedIn) {
+       //    String countryCode = '+1'; // Default
+       //    String mainPhone = phone;
+       //    if (phone.startsWith('+')) {
+       //      if (phone.length > 3) {
+       //         countryCode = phone.substring(0, 3);
+       //         mainPhone = phone.substring(3);
+       //      }
+       //    }
+       //    
+       //    debugPrint('DEBUG: Attempting Guest Login for $email');
+       //    final guestRes = await ApiClient.guestLogin(
+       //      fname: fname,
+       //      email: email,
+       //      phone: mainPhone,
+       //      countryCode: countryCode,
+       //    ).timeout(const Duration(seconds: 15), onTimeout: () {
+       //      debugPrint('DEBUG: Guest Login Timed Out');
+       //      return null;
+       //    });
+       //    
+       //    if (guestRes != null) {
+       //      try {
+       //        Map<String, dynamic> profileData = {};
+       //        if (guestRes['data'] is Map) {
+       //          profileData = Map<String, dynamic>.from(guestRes['data']);
+       //        }
+       //        
+       //        // Ensure access_token is present in profileData
+       //        if (!profileData.containsKey('access_token') && guestRes.containsKey('access_token')) {
+       //          profileData['access_token'] = guestRes['access_token'];
+       //        }
+       //        
+       //        if (profileData.containsKey('access_token')) {
+       //          final profile = Profile.fromJson(profileData);
+       //          await AppState.setProfile(profile, local: false, loader: false);
+       //          setState(() {
+       //            _isLoggedIn = true;
+       //          });
+       //          debugPrint('DEBUG: Guest Login Successful, customer_id: ${profile.id}');
+       //        } else {
+       //          debugPrint('DEBUG: Guest login response missing access_token: $guestRes');
+       //          AppState.hideLoader();
+       //          setState(() => _isSubmitting = false);
+       //          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Login failed: No access token received.')));
+       //          return;
+       //        }
+       //      } catch (e) {
+       //        debugPrint('DEBUG: Error parsing guest profile: $e');
+       //        AppState.hideLoader();
+       //        setState(() => _isSubmitting = false);
+       //        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to initialize guest session: $e')));
+       //        return;
+       //      }
+       //    } else {
+       //       debugPrint('DEBUG: Guest Login failed or returned null');
+       //       AppState.hideLoader();
+       //       setState(() => _isSubmitting = false);
+       //       return;
+       //    }
+       // }
 
        final String customerId = AppState.profile?.id?.toString() ?? '';
        debugPrint('DEBUG: Proceeding with checkout, customerId: $customerId');

@@ -7,6 +7,7 @@ import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path/path.dart' as p;
+import 'package:url_launcher/url_launcher.dart';
 import '../../api/api.client.dart';
 import '../../helpers/app_colors.dart';
 import '../../helpers/utils.dart';
@@ -16,6 +17,8 @@ import '../../services/toast.service.dart';
 import '../shared/widgets/custom_button.widget.dart';
 import '../shared/widgets/custom_image.dart';
 import 'order_details.screen.dart';
+import 'transfer_ticket.screen.dart';
+import 'organizer_detail.screen.dart';
 
 class TicketDetailsScreen extends StatefulWidget {
   final Map<String, dynamic> ticket;
@@ -72,7 +75,7 @@ class _TicketDetailsScreenState extends State<TicketDetailsScreen> {
 
     try {
       final data = await ApiClient.customerBookingDetails(bookingId, id: id).timeout(const Duration(seconds: 15));
-      debugPrint('FULL API RESPONSE (Ticket Details): $data$bookingId');
+      debugPrint('FULL API RESPONSE (Ticket Details): $bookingId$bookingId');
       if (mounted) {
         setState(() {
           _bookingDetails = data?['data'] ?? data;
@@ -125,6 +128,136 @@ class _TicketDetailsScreenState extends State<TicketDetailsScreen> {
       width: 140,
       height: 140,
       fit: BoxFit.contain,
+    );
+  }
+
+  void _showSeeMoreBottomSheet() {
+    final Map<String, dynamic> ticketData = (_bookingDetails?['data'] is Map) 
+        ? (_bookingDetails!['data'] as Map<String, dynamic>) 
+        : (_bookingDetails ?? widget.ticket);
+    final event = ticketData['event'] ?? {};
+    final venueDetail = event['venue_detail'] ?? {};
+    
+    // Get the best address available
+    String? address;
+    if (event['map_address'] != null && event['map_address'].toString().isNotEmpty) {
+      address = event['map_address'];
+    } else if (venueDetail['address'] != null && venueDetail['address'].toString().isNotEmpty) {
+      address = venueDetail['address'];
+    } else if (event['event_address'] != null && event['event_address'].toString().isNotEmpty) {
+      address = event['event_address'];
+    } else if (event['event_location'] != null && event['event_location'].toString().isNotEmpty) {
+      address = event['event_location'];
+    } else if (event['venue'] != null && event['venue'].toString().isNotEmpty) {
+      address = event['venue'];
+    }
+    
+    final bookingId = ticketData['booking']?['booking_id']?.toString() ?? ticketData['booking_id'] ?? ticketData['order_id'] ?? ticketData['id']?.toString() ?? '-';
+    final organizer = ticketData['organizer'] ?? {};
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Handle/Indicator
+              Container(
+                margin: const EdgeInsets.symmetric(vertical: 12),
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              // Options
+              // ListTile(
+              //   leading: const Icon(Icons.swap_horiz, color: AppColors.black),
+              //   title: const Text(
+              //     'Transfer Your ticket',
+              //     style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              //   ),
+              //   onTap: () {
+              //     Navigator.pop(context);
+              //     Navigator.push(
+              //       context,
+              //       MaterialPageRoute(builder: (context) => const TransferTicketScreen()),
+              //     );
+              //   },
+              // ),
+              // const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.receipt, color: AppColors.black),
+                title: const Text(
+                  'Order Details',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => OrderDetailsScreen(
+                        bookingData: _bookingDetails ?? {},
+                        ticketId: bookingId,
+                      ),
+                    ),
+                  );
+                },
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.directions, color: AppColors.black),
+                title: const Text(
+                  'Get directions',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                onTap: () async {
+                  Navigator.pop(context);
+                  if (address != null && address.isNotEmpty) {
+                    final url = 'https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(address)}';
+                    if (await canLaunchUrl(Uri.parse(url))) {
+                      await launchUrl(Uri.parse(url));
+                    } else {
+                      ToastService.show('Could not open maps');
+                    }
+                  } else {
+                    ToastService.show('Location not available');
+                  }
+                },
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.email, color: AppColors.black),
+                title: const Text(
+                  'Contact Organizer',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => OrganizerDetailScreen(
+                        organizer: organizer,
+                      ),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 20),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -574,7 +707,7 @@ class _TicketDetailsScreenState extends State<TicketDetailsScreen> {
                           Expanded(
                             child: CustomButton.outline(
                               title: 'See more',
-                              onTap: () {},
+                              onTap: () => _showSeeMoreBottomSheet(),
                             ),
                           ),
                         ],
