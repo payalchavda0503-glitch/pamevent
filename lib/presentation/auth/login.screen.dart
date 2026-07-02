@@ -51,14 +51,6 @@ class _LoginScreenState extends State<LoginScreen> {
     _password = TextEditingController();
     _createAccount = TapGestureRecognizer();
     _createAccount.onTap = () => context.push(const RegisterScreen());
-    if (kDebugMode) {
-      _username.text = 'organizer';
-      _password.text = '123456';
-    }
-    // if (kDebugMode) {
-    //   _username.text = 'glinca21078';
-    //   _password.text = 'KR233LXLD4';
-    // }
   }
 
   @override
@@ -188,62 +180,63 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _handleTrackAndLogin() async {
-    // IMPORTANT: Facebook login must work on Android too (Meta review).
-    //
-    // On iOS, ATT is not required for Facebook login itself. We'll request it
-    // opportunistically, but we never block login if the user declines.
-    if (Platform.isIOS) {
-      try {
-        var status = await AppTrackingTransparency.trackingAuthorizationStatus;
-        if (status == TrackingStatus.notDetermined) {
-          await AppTrackingTransparency.requestTrackingAuthorization();
-        }
-      } catch (_) {
-        // Ignore ATT errors; login must still work.
-      }
-    }
+    ToastService.show('This functionality is coming soon');
+    // // IMPORTANT: Facebook login must work on Android too (Meta review).
+    // //
+    // // On iOS, ATT is not required for Facebook login itself. We'll request it
+    // // opportunistically, but we never block login if the user declines.
+    // if (Platform.isIOS) {
+    //   try {
+    //     var status = await AppTrackingTransparency.trackingAuthorizationStatus;
+    //     if (status == TrackingStatus.notDetermined) {
+    //       await AppTrackingTransparency.requestTrackingAuthorization();
+    //     }
+    //   } catch (_) {
+    //     // Ignore ATT errors; login must still work.
+    //   }
+    // }
 
-    await _handleFaceBookAuth();
+    // await _handleFaceBookAuth();
   }
 
-  Future<void> _handleFaceBookAuth() async {
-    try {
-      AppState.showLoader();
-      final result = await AppState.fbAuth.login(
-        permissions: const ['public_profile', 'email'],
-        loginTracking: LoginTracking.enabled,
-      );
-      if (result.status != LoginStatus.success) {
-        return ToastService.show('Sign-in cancelled.');
-      }
-      final auth = await AppState.fbAuth.getUserData(fields: 'name,email');
-      if (auth.isEmpty) return ToastService.show('Failed to get user info.');
-      final name = (auth['name'] as String?)?.spread;
-      final email = auth['email'];
-      if (email is! String || email.trim().isEmpty) {
-        return ToastService.show(
-          'Facebook did not provide an email for this account. Please login with Google or Username/Password.',
-          backgroundColor: AppColors.red,
-          long: true,
-        );
-      }
-      AppState.showLoader();
-      final profile = await ApiClient.socialLogin(
-        firstName: name?.first,
-        lastName: name?.last,
-        providerId: auth['id'],
-        email: email,
-        provider: 'facebook',
-      );
-      AppState.hideLoader();
-      _handleAfterLogin(profile);
-    } catch (error) {
-      if (kDebugMode) rethrow;
-      ToastService.show('Failed to login with facebook.');
-    } finally {
-      AppState.hideLoader();
-    }
-  }
+  // Future<void> _handleFaceBookAuth() async {
+  //   try {
+  //     AppState.showLoader();
+  //     final result = await AppState.fbAuth.login(
+  //       permissions: const ['public_profile', 'email'],
+  //       loginTracking: LoginTracking.enabled,
+  //     );
+  //     if (result.status != LoginStatus.success) {
+  //       return ToastService.show('Sign-in cancelled.');
+  //     }
+  //     final auth = await AppState.fbAuth.getUserData(fields: 'name,email');
+  //     if (auth.isEmpty) return ToastService.show('Failed to get user info.');
+  //     final name = (auth['name'] as String?)?.spread;
+  //     final email = auth['email'];
+  //     if (email is! String || email.trim().isEmpty) {
+  //       return ToastService.show(
+  //         'Facebook did not provide an email for this account. Please login with Google or Username/Password.',
+  //         backgroundColor: AppColors.red,
+  //         long: true,
+  //       );
+  //     }
+  //     AppState.showLoader();
+  //     final profile = await ApiClient.socialLogin(
+  //       firstName: name?.first,
+  //       lastName: name?.last,
+  //       providerId: auth['id'],
+  //       email: email,
+  //       provider: 'facebook',
+  //     );
+  //     AppState.hideLoader();
+  //     _handleAfterLogin(profile);
+  //   } catch (error) {
+  //     if (kDebugMode) rethrow;
+  //     ToastService.show('Failed to login with facebook.');
+  //   } finally {
+  //     AppState.hideLoader();
+  //   }
+  // }
 
   @override
   Widget build(BuildContext context) {

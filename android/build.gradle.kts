@@ -11,13 +11,8 @@ val newBuildDir: Directory =
         .get()
 rootProject.layout.buildDirectory.value(newBuildDir)
 
-subprojects {
-    val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
-    project.layout.buildDirectory.value(newSubprojectBuildDir)
-}
-subprojects {
-    project.evaluationDependsOn(":app")
-}
+// Only override the app subproject's build directory, leave plugins alone
+project(":app").layout.buildDirectory.value(newBuildDir.dir("app"))
 
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
